@@ -22,3 +22,5 @@ optional arguments:
 ## Datasets
 
 Using [CoSQL](https://yale-lily.github.io/cosql), [Spider](https://yale-lily.github.io/spider), [Sparc](https://yale-lily.github.io/sparc) datasets. Credit to the authors.
+
+There are a couple of things to note, we have in total 178 tables, but only 166 tables in training date and dev set has 20 tables.
