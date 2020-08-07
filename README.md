@@ -2,6 +2,8 @@
 
 # Text2SQL using pretrained models
 
+Install all the dependencies before running, see [requirements](requirements.txt).
+
 ## Parsing
 
 In order to convert JSON objects into langauge models use the [`parse_to_lm.py`](./parse_to_lm.py), usage:
@@ -79,4 +81,9 @@ optional arguments:
 
 ## Datasets
 
-Using [CoSQL](https://yale-lily.github.io/cosql), [Spider](https://yale-lily.github.io/spider), [Sparc](https://yale-lily.github.io/sparc) datasets. Credit to the authors. There are a couple of things to note, we have in total 178 tables, but only 166 tables in training date and dev set has 20 tables.
+Using [CoSQL](https://yale-lily.github.io/cosql), [Spider](https://yale-lily.github.io/spider), [Sparc](https://yale-lily.github.io/sparc) datasets, credit to the authors. There are a couple of things to note, we have in total 178 tables, but only 166 tables in training date and dev set has 20 tables.
+
+
+## License
+
+The code I am using is under MIT License and `transformers` code is under Apache License, Version 2.0

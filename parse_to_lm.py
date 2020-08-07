@@ -65,23 +65,27 @@ NO INFORMATION GIVEN ABOUT THIS ONE, BUT WE CAN STILL GET [table], [NL], [QUERY]
 """
 
 import re
+import csv
 import json
 from copy import deepcopy
+import sentencepiece as spm
 from argparse import ArgumentParser
 
-args = ArgumentParser(description= "This file converts the dataset"
-                    " sentences to my format to be used for "
-                    "langauge modelling and use GPT insted of BERT models.")
-args.add_argument("--pairs", type = str, default = "t2sql_pairs.tsv",
-    help = "path to pairs dump")
+args = ArgumentParser(description="This file converts the dataset"
+                      " sentences to my format to be used for "
+                      "langauge modelling and use GPT insted of BERT models.")
+args.add_argument("--pairs", type=str, default="t2sql_pairs.tsv",
+                  help="path to pairs dump")
 args.add_argument("--tables", type=str, default="t2sql_tables.tsv",
-    help = "path to tables lm dump")
+                  help="Path to tables lm dump")
 args.add_argument("--dev-pairs", type=str, default="t2sql_pairs_dev.tsv",
-    help = "path to dev pairs dump")
-args.add_argument("--fresh-tokenizer", nargs='?', type = bool, default = True,
-    help = "if passed create a new sentencepiece tokenizer model. Change args from file.")
+                  help="Path to dev pairs dump")
+args.add_argument("--fresh-tokenizer", type=bool, default=False,
+                  help="If passed create a new sentencepiece tokenizer model. Change args from file.")
 args.add_argument("--corpus", type=str, default="tokenizer_corpus.txt",
-    help="what will be the file to feed to tokenizer.")
+                  help="Filepath to train tokenizer")
+args.add_argument("--lm_corpus",  type=str, default="t2sql_lm.txt",
+                  help="Filepath for LM text dump")
 args = args.parse_args()
 
 # paths to main files
@@ -103,7 +107,7 @@ SPIDER_SQL_DEV = "spider/dev_gold.sql"
 SPIDER_DEV = "spider/dev.json"
 SPARC_DEV = "sparc/dev.json"
 
-# make the pairs dataset
+# ---------------- CREATE PAIRS ---------------- #
 data = []
 with open(OTHER_FILE) as f1, open(SPIDER_FILE) as f2, open(SPARC_FILE) as f3, open(COSQL_FILE) as f4:
     # train_others.json
@@ -116,14 +120,15 @@ with open(OTHER_FILE) as f1, open(SPIDER_FILE) as f2, open(SPARC_FILE) as f3, op
 
     # sparc/train.json
     for x in json.load(f3):
-        data.append((x["final"]["utterance"], x["final"]["query"], x["database_id"]))
+        data.append((x["final"]["utterance"], x["final"]
+                     ["query"], x["database_id"]))
 
     # cosql_all_info_dialogs.json
     for x, y in json.load(f4).items():
         data.append((y["query_goal"], y["sql"], y["db_id"]))
 
 with open(args.pairs, "w") as f:
-    print(f"Saving Training pairs dataset at: {args.pairs}")
+    print(f"🕰  Saving Training pairs dataset at: {args.pairs}")
     s = "question\tquery\tdb_id\n"
     for x in data:
         x = list(map(lambda s: re.sub("\s+", " ", s), x))
@@ -131,7 +136,7 @@ with open(args.pairs, "w") as f:
     f.write(s)
 
 
-# saving the dev set
+# ---------------- CREATE PAIRS (DEV) ---------------- #
 data = []
 with open(SPIDER_DEV) as f1, open(SPARC_DEV) as f2:
     # train_others.json
@@ -140,17 +145,18 @@ with open(SPIDER_DEV) as f1, open(SPARC_DEV) as f2:
 
     # sparc/train.json
     for x in json.load(f2):
-        data.append((x["final"]["utterance"], x["final"]["query"], x["database_id"]))
+        data.append((x["final"]["utterance"], x["final"]
+                     ["query"], x["database_id"]))
 
 with open(args.dev_pairs, "w") as f:
-    print(f"Saving Dev. pairs dataset at: {args.dev_pairs}")
+    print(f"🕰  Saving Dev. pairs dataset at: {args.dev_pairs}")
     s = "question\tquery\tdb_id\n"
     for x in data:
         x = list(map(lambda s: re.sub("\s+", " ", s), x))
         s += "\t".join(x) + "\n"
     f.write(s)
 
-# make the tables
+# ---------------- CREATE TABLES ---------------- #
 table_date = []
 with open(SPIDER_TABLES) as f1, open(SPARC_TABLES) as f2, open(COSQL_TABLES) as f3:
     table_date.extend(json.load(f1))  # spider/tables.json
@@ -194,11 +200,34 @@ for didx, d in enumerate(table_date):
     table_strings.append(s)
 
 with open(args.tables, "w") as f:
-    print(f"Saving tables at: {args.pairs}")
+    print(f"🕰  Saving tables at: {args.pairs}")
     s = "id\ttable_name\tstring\n"
     s += '\n'.join(table_strings)
     f.write(s)
 
+# ---------------- CREATE LM CORPUS ---------------- #
+# first get a mapping like {<db_name>: <table_string>}
+with open(args.tables) as f:
+    t = [x.strip() for x in f.readlines()]
+
+table_strs = {}
+for item in t[1:]:
+    _, db_name, table_string = item.split("\t")
+    table_strs[db_name] = table_string
+
+# now get all the question-query pairs
+with open(args.pairs) as f:
+    p = [x.strip() for x in f.readlines()]
+
+triplets = []
+for item in p[1:]:
+    question, query, db_name = item.split("\t")
+    tstr = table_strs[db_name]
+    triplets.append(f"{tstr} [question] {question} [query] {query}")
+
+with open(args.lm_corpus, "w") as f:
+    print(f"🕰  Saving LM Corpus at {args.lm_corpus}")
+    f.write("\n".join(triplets))  
 
 # make the tokenizer if needed
 if args.fresh_tokenizer:
@@ -215,6 +244,5 @@ if args.fresh_tokenizer:
         final = table_strings + pair_strings + dev_strings
 
         with open(args.corpus, "w") as c:
+            print(f"🕰  Saving Tokenizer Corpus at {args.corpus}")
             c.write("\n".join(final))
-
-

@@ -4,9 +4,12 @@ cosql_dataset/
 
 .DS_STORE
 
- # notebooks, unless explicilty mentioned.
+# notebooks, unless explicilty mentioned.
 .ipynb_checkpoints/
 *.ipynb
 
 # let people process those
 *tsv
+
+# mostly the dump files
+*.txt
