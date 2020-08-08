@@ -1,6 +1,10 @@
 <img src="assets/header.png">
 
-# Text2SQL using pretrained models
+# Text2SQL
+
+How many times have you pulled your hair apart writing a SQL query, now use natural language to convert to appropriate SQL and save your precious hair.
+
+It's a bitch to train large networks, I am thinking of porting the model to tensorflow and running it on TPUs, any help would be welcome!
 
 Install all the dependencies before running, see [requirements](requirements.txt).
 

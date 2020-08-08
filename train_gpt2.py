@@ -32,6 +32,8 @@ if __name__ == "__main__":
                       help="path to pairs dump")
     args.add_argument("--tables", type=str, default="t2sql_tables.tsv",
                       help="path to tables lm dump")
+    args.add_argument("--tokenizer", type=str, default=None,
+                      help="If training from scratch provide sentencepeice tokenizer path")
 
     # train args
     args.add_argument("--num_epochs", type=int, default=20,
@@ -46,6 +48,8 @@ if __name__ == "__main__":
                       help="If passed, prepares tensorbaord summaries")
 
     # model config defaults set to one from GPT2Config
+    args.add_argument("--gptmodel", default="gpt2", type=str,
+                      help="GPT model to use for finetuning")
     args.add_argument("--maxlen", default=1024, type=int,
                       help="Maximum sequence length")
     args.add_argument("--n_embd", default=768, type=int,
@@ -76,41 +80,54 @@ if __name__ == "__main__":
                       type=bool, help="summary_proj_to_labels in GPTConfig")
     args.add_argument("--summary_first_dropout", default=0.1,
                       type=float, help="summary_first_dropout in GPTConfig")
-    args.add_argument("--bos_token_id", default=50256, type=int,
-                      help="beggining of statement ID in vocabulary")
-    args.add_argument("--eos_token_id", default=50256, type=int,
-                      help="end of statement ID in vocabulary")
     args = args.parse_args()
 
     # make dir if present
     os.makedirs(args.save_folder, exist_ok=True)
 
-    MODE_TRAIN = {"t": True, "f": False}[args.tf]
-
-    if MODE_TRAIN:
+    NEW_TRAIN = {"t": True, "f": False}[args.tf]
+    if NEW_TRAIN:
+        assert (args.tokenizer is not None, "When training from scratch need "
+            "to provide sentencepiece tokenizer path")
         print("🔋 Training the model from scratch")
+        import sentencepiece as spm
+        tokenizer = spm.SentencePieceProcessor()
+        # here we assume that you have already added the special token from the dataset
+        with open(args.tokenizer.replace(".model", ".vocab"), "r") as f:
+            vocab_size = len(f.readlines())
+
+        config = GPT2Config(
+            vocab_size=vocab_size,
+            n_positions=args.maxlen,
+            n_ctx=args.maxlen,
+            n_embd=args.n_embd,
+            n_layer=args.n_layer,
+            n_head=args.n_head,
+            activation_function=args.activation_function,
+            resid_pdrop=args.resid_pdrop,
+            embd_pdrop=args.embd_pdrop,
+            attn_pdrop=args.attn_pdrop,
+            layer_norm_epsilon=args.layer_norm_epsilon,
+            initializer_range=args.initializer_range,
+            summary_type=args.summary_type,
+            summary_use_proj=args.summary_use_proj,
+            summary_activation=args.summary_activation,
+            summary_proj_to_labels=args.summary_proj_to_labels,
+            summary_first_dropout=args.summary_first_dropout,
+            bos_token_id=tokenizer.bos_id(),
+            eos_token_id=tokenizer.eos_id(),
+        )
+        
+        model = GPT2LMHeadModel(config)
     else:
         print("🔋 Finetuning model from huggingface's transformers")
+        tokenizer = GPT2Tokenizer.from_pretrained(args.model)
+        tokenizer.add_special_tokens({
+            "additional_special_tokens": ["[table]", "[col]", "[question]", "[query]"]
+        })
+        model = GPT2LMHeadModel.from_pretrained(args.gptmodel)
+        model.resize_token_embeddings(len(tokenizer))
 
-    # model config
-    config = GPT2Config(
-        vocab_size=args.vocab_size,
-        n_positions=args.maxlen,
-        n_ctx=args.maxlen,
-        n_embd=args.n_embd,
-        n_layer=args.n_layer,
-        n_head=args.n_head,
-        activation_function=args.activation_function,
-        resid_pdrop=args.resid_pdrop,
-        embd_pdrop=args.embd_pdrop,
-        attn_pdrop=args.attn_pdrop,
-        layer_norm_epsilon=args.layer_norm_epsilon,
-        initializer_range=args.initializer_range,
-        summary_type=args.summary_type,
-        summary_use_proj=args.summary_use_proj,
-        summary_activation=args.summary_activation,
-        summary_proj_to_labels=args.summary_proj_to_labels,
-        summary_first_dropout=args.summary_first_dropout,
-        bos_token_id=args.bos_token_id,
-        eos_token_id=args.eos_token_id,
-    )
+    # now we load the dataset and proceed to training
+    model.
+    
