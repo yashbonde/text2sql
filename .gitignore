@@ -7,7 +7,7 @@ __pycache__/
 
 # ignore the pypi things
 dist/
-src/text2sql.egg-info/
+src/text2sql.egg-info/PKG-INFO
 
 .DS_STORE
 _temp.png
