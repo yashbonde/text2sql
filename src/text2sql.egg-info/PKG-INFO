@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: text2sql
-Version: 0.1
+Version: 0.1.1
 Summary: Convert natural language questions to SQL query
 Home-page: https://github.com/yashbonde/text2sql
 Author: Yash Bonde
