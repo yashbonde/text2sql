@@ -1,6 +1,7 @@
 sparc/
 spider/
 cosql_dataset/
+data/
 
 .DS_STORE
 
