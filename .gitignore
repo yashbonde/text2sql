@@ -3,6 +3,9 @@ spider/
 cosql_dataset/
 data/
 
+__pycache__/
+
+
 .DS_STORE
 
 # notebooks, unless explicilty mentioned.

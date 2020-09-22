@@ -6,11 +6,17 @@ How many times have you pulled your hair apart writing a SQL query, now use natu
 
 ## Installation
 
-[TODO] Add pip installation support.
+To install this repo clone it then run `setup.py`
+```
+git clone https://github.com/yashbonde/text2sql.git
+cd text2sql/
+pip3 install -e . #text2sql
+```
 
 ## Parsing
 
-New method of parsing to convert each DB to a graph network.
+New method of parsing to convert each DB to a graph network, red denotes foreign keys.
+<img src="assets/dbvis.png">
 
 ## Trainer File
 
