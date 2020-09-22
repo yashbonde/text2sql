@@ -5,8 +5,12 @@ data/
 
 __pycache__/
 
+# ignore the pypi things
+dist/
+src/text2sql.egg-info/
 
 .DS_STORE
+_temp.png
 
 # notebooks, unless explicilty mentioned.
 .ipynb_checkpoints/

@@ -30,7 +30,7 @@ def parse_db_to_networkx(db):
     for i, c in enumerate(columns):
         name = c[1].replace(" ", "_")
         table = table_names[c[0]]
-        g.add_node(i, id = f"{table}.{name}", primary = True if (i+1) in primary_keys else False, type = column_types[i])
+        g.add_node(i, id = f"{table}.{name}", name = name, table = table, primary = True if (i+1) in primary_keys else False, type = column_types[i])
 
     # for edges first foriegn keys because simpler
     for (s,t) in foreign_keys:
