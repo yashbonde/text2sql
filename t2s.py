@@ -210,26 +210,30 @@ SELECT
     HAVING count(*) >= 2
 ```
 
-My assumption is that the dataset was created with langauge models in mind, however in
-practice direclty pointing out the column is a better solution design. So the network
-looks like this:
-```
-# pass the database through a graph encoder to get node and graph embeddings
-DB --> [GNN] ---> (node embedding) [N_1, E_1]        ... A
-              \-> (graph embedding) [1, E_1]         ... B
+The idea with initial model was a complicated graph based approach but now I
+am considering a much simpler model. Model is a simple Transformer where we have
+two different encoder structures:
+* BERT as question encoder
+* Message-passing GNN as DB encoder
 
-# pass the natural language question, through any LM like BERT
-Q ---> [BERT] --> (token level embedding) [N_2, E_2] ... C
-
-# --- undecided --- 
-# concatenate the graph embedding and natural language embedding
-[B+C] --> [N_2, E_1 + E_2] ... D
-
-# --- policy ---
-For policy we can either use a GPT transformer or an LSTM
-
-```
+These two combined will be fed into a conventional transformer decoder.
 """)
+
+# # My assumption is that the dataset was created with langauge models in mind, however in practice
+# # direclty pointing out the column is a better solution design.
+# # pass the database through a graph encoder to get node and graph embeddings
+# DB --> [GNN] ---> (node embedding) [N_1, E_1]        ... A
+#               \-> (graph embedding) [1, E_1]         ... B
+
+# # pass the natural language question, through any LM like BERT
+# Q ---> [BERT] --> (token level embedding) [N_2, E_2] ... C
+
+# # --- undecided --- 
+# # concatenate the graph embedding and natural language embedding
+# [B+C] --> [N_2, E_1 + E_2] ... D
+
+# # --- policy ---
+# For policy we can either use a GPT transformer or an LSTM
 
 # ! TODO: add question parsing in real time here
 # question = st.text_input(f"question for DB: {DB_ID} (do not press enter)", value = data_this_db[0][0], max_chars=100)
