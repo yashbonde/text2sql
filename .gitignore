@@ -3,6 +3,7 @@ spider/
 cosql_dataset/
 data/
 .vscode/
+notebooks/
 
 __pycache__/
 
