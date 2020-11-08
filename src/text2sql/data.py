@@ -3,8 +3,11 @@
 
 import re
 import json
+import numpy as np
 import networkx as nx
 from tabulate import tabulate
+
+import torch
 from torch.utils.data import Dataset
 
 def parse_db_to_networkx(db):
@@ -33,7 +36,11 @@ def parse_db_to_networkx(db):
     for i, c in enumerate(columns):
         name = c[1].replace(" ", "_")
         table = table_names[c[0]]
-        g.add_node(i, id = f"{table}.{name}", name = name, table = table, primary = True if (i+1) in primary_keys else False, type = column_types[i])
+        g.add_node(
+            i, id = f"{table}.{name}", name = name, table = table,
+            primary = True if (i+1) in primary_keys else False,
+            type = column_types[i]
+        )
 
     # for edges first foriegn keys because simpler
     for (s,t) in foreign_keys:
@@ -49,6 +56,15 @@ def parse_db_to_networkx(db):
             for cc in cols[i+1:]:
                 g.add_edge(c, cc, foreign = False)
     return g
+
+
+def get_db_attention_mask(g, size, device = "cpu", inf = -1e6):
+    A = nx.adjacency_matrix(g).todense()
+    A = A + np.eye(len(A))  # add self loops
+    m = np.zeros((size, size))
+    m[:len(A), :len(A)] = A  # add to big loop
+    m = m * inf
+    return torch.from_numpy(m).long().to(device), len(A)
 
 
 def format_sql(in_str):

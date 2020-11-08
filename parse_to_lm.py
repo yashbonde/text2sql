@@ -103,7 +103,8 @@ SPARC_DEV = os.path.join(args.data_folder, "sparc/dev.json")
 data = []
 dbs = []
 test_train = []
-with open(OTHER_FILE) as f1, open(SPIDER_FILE) as f2, open(SPARC_FILE) as f3, open(COSQL_FILE) as f4, open(SPIDER_DEV) as f5, open(SPARC_DEV) as f6:
+with open(OTHER_FILE) as f1, open(SPIDER_FILE) as f2, open(SPARC_FILE) as f3,\
+    open(COSQL_FILE) as f4, open(SPIDER_DEV) as f5, open(SPARC_DEV) as f6:
     # ========= SPIDER ========= #
     # train_spider.json
     for x in json.load(f2):
@@ -161,10 +162,33 @@ df = pd.DataFrame(data=dataset_f, columns=cols)
 df.to_csv(os.path.join(args.data_folder, "all_questions.tsv"), sep="\t", index = False)
 print(f"Save dataset at: {os.path.join(args.data_folder, 'all_questions.tsv')}")
 
-"""
-Below this was the old language modelling method which was a bad idea due to compute
-requirements. Instead we now use a better system.
-"""
+# creating a single dump of all the table
+all_schema = {}
+with open(os.path.join(args.data_folder, SPARC_TABLES), "r") as f1,\
+    open(os.path.join(args.data_folder, SPIDER_TABLES), "r") as f2,\
+    open(os.path.join(args.data_folder, COSQL_TABLES), "r") as f3:
+
+    data = json.load(f1)  # now load the
+    for x in data:
+        all_schema[x.pop("db_id")] = x
+
+    data = json.load(f2)
+    for x in data:
+        all_schema[x.pop("db_id")] = x
+
+    data = json.load(f3)
+    for x in data:
+        all_schema[x.pop("db_id")] = x
+
+with open(os.path.join(args.data_folder,"all_schema.json"), "w") as f:
+    f.write(json.dumps(all_schema))
+
+print(f"Found {len(all_schema)} Schema")
+
+# """
+# Below this was the old language modelling method which was a bad idea due to compute
+# requirements. Instead we now use a better system.
+# """
 
 # with open(args.pairs, "w") as f:
 #     print(f"🕰  Saving Training pairs dataset at: {args.pairs}")
@@ -173,7 +197,6 @@ requirements. Instead we now use a better system.
 #         x = list(map(lambda s: re.sub("\s+", " ", s), x))
 #         s += "\t".join(x) + "\n"
 #     f.write(s)
-
 
 # # ---------------- CREATE PAIRS (DEV) ---------------- #
 # data = []
