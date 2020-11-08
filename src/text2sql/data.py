@@ -1,6 +1,7 @@
 """data management piece
 22.09.2020 - @yashbonde"""
 
+import re
 import json
 import networkx as nx
 from tabulate import tabulate
@@ -48,6 +49,15 @@ def parse_db_to_networkx(db):
             for cc in cols[i+1:]:
                 g.add_edge(c, cc, foreign = False)
     return g
+
+
+def format_sql(in_str):
+    for p in re.findall(r"[a-z_]+\sAS\st\d", in_str):
+        table, id = [x.strip() for x in p.split("AS")]
+        in_str = in_str.replace(p, table)
+        in_str = in_str.replace(id, table)
+    in_str = re.sub(r"\s+", " ", in_str)
+    return in_str
 
 
 # class T2SDataset(Dataset):
