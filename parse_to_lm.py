@@ -64,68 +64,102 @@ Cross-Domain Natural Language Interfaces to Databases
 NO INFORMATION GIVEN ABOUT THIS ONE, BUT WE CAN STILL GET [table], [NL], [QUERY] triplets
 """
 
+import os
 import json
+import pandas as pd
 import networkx as nx  # each table is a graph
 from argparse import ArgumentParser
+
+from text2sql.data import format_sql
 
 args = ArgumentParser(description="This file converts the dataset"
                       " sentences to my format to be used for "
                       "langauge modelling and use GPT insted of BERT models.")
-args.add_argument("--pairs", type=str, default="t2sql_pairs.tsv",
-                  help="path to pairs dump")
-args.add_argument("--tables", type=str, default="t2sql_tables.tsv",
-                  help="Path to tables lm dump")
-args.add_argument("--dev-pairs", type=str, default="t2sql_pairs_dev.tsv",
-                  help="Path to dev pairs dump")
-args.add_argument("--fresh-tokenizer", type=bool, default=False,
-                  help="If passed create a new sentencepiece tokenizer model. Change args from file.")
-args.add_argument("--corpus", type=str, default="tokenizer_corpus.txt",
-                  help="Filepath to train tokenizer")
-args.add_argument("--lm_corpus",  type=str, default="t2sql_lm.txt",
-                  help="Filepath for LM text dump")
+
+args.add_argument("--data_folder", type=bool, default="/Users/yashbonde/Desktop/AI/text2sql/data",
+                  help="Folder with the extracted datasets")
 args = args.parse_args()
 
 # paths to main files
-OTHER_FILE = "spider/train_others.json"
-SPIDER_FILE = "spider/train_spider.json"
-SPARC_FILE = "sparc/train.json"
-COSQL_FILE = "cosql_dataset/cosql_all_info_dialogs.json"
+OTHER_FILE = os.path.join(args.data_folder, "spider/train_others.json")
+SPIDER_FILE = os.path.join(args.data_folder, "spider/train_spider.json")
+SPARC_FILE = os.path.join(args.data_folder, "sparc/train.json")
+COSQL_FILE = os.path.join(args.data_folder, "cosql_dataset/cosql_all_info_dialogs.json")
 
 # files containing tables info
-SPIDER_TABLES = "spider/tables.json"
-SPARC_TABLES = "sparc/tables.json"
-COSQL_TABLES = "cosql_dataset/tables.json"
+SPIDER_TABLES = os.path.join(args.data_folder, "spider/tables.json")
+SPARC_TABLES = os.path.join(args.data_folder, "sparc/tables.json")
+COSQL_TABLES = os.path.join(args.data_folder, "cosql_dataset/tables.json")
 
 # spider dataset already has sql files that we can read from to tokenize
-SPIDER_SQL_TRAIN = "spider/train_gold.sql"
-SPIDER_SQL_DEV = "spider/dev_gold.sql"
+SPIDER_SQL_TRAIN = os.path.join(args.data_folder, "spider/train_gold.sql")
+SPIDER_SQL_DEV = os.path.join(args.data_folder, "spider/dev_gold.sql")
 
 # dev set
-SPIDER_DEV = "spider/dev.json"
-SPARC_DEV = "sparc/dev.json"
+SPIDER_DEV = os.path.join(args.data_folder, "spider/dev.json")
+SPARC_DEV = os.path.join(args.data_folder, "sparc/dev.json")
 
 # ---------------- CREATE PAIRS ---------------- #
 data = []
-with open(OTHER_FILE) as f1, open(SPIDER_FILE) as f2, open(SPARC_FILE) as f3, open(COSQL_FILE) as f4:
-    # train_others.json
-    for x in json.load(f1):
-        data.append((x["question"], x["query"], x["db_id"]))
-
+dbs = []
+test_train = []
+with open(OTHER_FILE) as f1, open(SPIDER_FILE) as f2, open(SPARC_FILE) as f3, open(COSQL_FILE) as f4, open(SPIDER_DEV) as f5, open(SPARC_DEV) as f6:
+    # ========= SPIDER ========= #
     # train_spider.json
     for x in json.load(f2):
         data.append((x["question"], x["query"], x["db_id"]))
+        dbs.append("train_spider")
+        test_train.append(1)
 
+    # spider_dev.json
+    for x in json.load(f5):
+        data.append((x["question"], x["query"], x["db_id"]))
+        dbs.append("test_spider")
+        test_train.append(0)
+
+    # train_others.json ======>>> SPIDER FOLDER
+    for x in json.load(f1):
+        data.append((x["question"], x["query"], x["db_id"]))
+        dbs.append("train_others")
+        test_train.append(1)
+
+    # ========= SPARC ========= #
     # sparc/train.json
     for x in json.load(f3):
         data.append((x["final"]["utterance"], x["final"]["query"], x["database_id"]))
+        dbs.append("train_sparc")
+        test_train.append(1)
 
+    # SPARC_DEV.json
+    for x in json.load(f6):
+        data.append((x["final"]["utterance"], x["final"]["query"], x["database_id"]))
+        dbs.append("test_spark")
+        test_train.append(0)
+
+    # ========= COSQL ========= #
     # cosql_all_info_dialogs.json
-    for x, y in json.load(f4).items():
+    for x,y in json.load(f4).items():
         data.append((y["query_goal"], y["sql"], y["db_id"]))
+        dbs.append("cosql_all")
+        test_train.append(1)
 
 
+dataset_f = []
+cols = ["question", "query", "db_id", "source", "train"]
+for d, db, tt in zip(data, dbs, test_train):
+    # sample = (d[0], format_sql(d[1]), d[2], db)
+    try:
+        s = format_sql(d[1])
+        if "T1" in s or "t1" in s:
+            print("((", d[1].lower())
+        dataset_f.append((d[0], s, d[2], db, tt))
+    except:
+        print("))", d[1])
 
-
+# create dataframe
+df = pd.DataFrame(data=dataset_f, columns=cols)
+df.to_csv(os.path.join(args.data_folder, "all_questions.tsv"), sep="\t", index = False)
+print(f"Save dataset at: {os.path.join(args.data_folder, 'all_questions.tsv')}")
 
 """
 Below this was the old language modelling method which was a bad idea due to compute

@@ -52,13 +52,25 @@ def parse_db_to_networkx(db):
 
 
 def format_sql(in_str):
-    for p in re.findall(r"[a-z_]+\sAS\st\d", in_str):
-        table, id = [x.strip() for x in p.split("AS")]
+    in_str = in_str.lower()
+    for p in re.findall(r"\w+\s+as\s+t\d+", in_str):
+        # print(p)
+        try:
+            table, id = [x.strip() for x in p.split("as")]
+        except:
+            table, id = [x.strip() for x in p.split(" as ")]
+        # replace phrase that contains "<table_name> AS <id>"
         in_str = in_str.replace(p, table)
-        in_str = in_str.replace(id, table)
-    in_str = re.sub(r"\s+", " ", in_str)
-    return in_str
 
+        # replace the table
+        in_str = in_str.replace(id, table)
+        in_str = in_str.replace(id.lower(), table)
+        in_str = in_str.replace(id.upper(), table)
+
+    # basic cleaning
+    in_str = re.sub(r"\s+", " ", in_str)
+    in_str = re.sub(r"\"+", '"', in_str)
+    return in_str
 
 # class T2SDataset(Dataset):
 #     def __init__(self, config):
