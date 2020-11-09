@@ -58,13 +58,32 @@ def parse_db_to_networkx(db):
     return g
 
 
-def get_db_attention_mask(g, size, device = "cpu", inf = -1e6):
+def get_db_attention_mask(g, size, device = "cpu", inf = 1e6):
     A = nx.adjacency_matrix(g).todense()
-    A = A + np.eye(len(A))  # add self loops
-    m = np.zeros((size, size))
-    m[:len(A), :len(A)] = A  # add to big loop
+    A = 1 - (A + np.eye(len(A)))  # add self loops
+    if size == -1:
+        m = A
+    else:
+        m = np.zeros((size, size))
+        m[:len(A), :len(A)] = A  # add to big loop
     m = m * inf
     return torch.from_numpy(m).long().to(device), len(A)
+
+def get_tokenised_attention_mask(g, t, size, device = "cpu", inf = -1e6):
+    """In method get_db_attention_mask() we do not consider that the tokens
+    will have a subword splitting and so the final attention mask will look
+    a bit different. This takes care of that by creating mask on subwords
+    as well.
+    :param g: graph
+    :param t: tokenizer
+    :param size: dimension of the output attention_mask
+    :param device: device to pass this matrix to
+    :param inf: what will be the negative infinity value
+    """
+    att = get_db_attention_mask(g, size = -1)
+    for n in g.nodes():
+        tokens = t.tokenize(n["id"])
+    pass
 
 
 def format_sql(in_str):

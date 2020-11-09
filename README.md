@@ -41,7 +41,5 @@ We convert the dateset into graphs using `text2sql.data.parse_db_to_networkx()` 
 
 ## License
 
-Following are the licensing things:
-1. I am releasing my part of code under MIT License
-2. `transformers` code is under Apache License, Version 2.0
+`text2sql` is released under the MIT license. Some parts of the software are released under other licenses as specified.
 
