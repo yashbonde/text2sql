@@ -10,6 +10,7 @@ from tabulate import tabulate
 import torch
 from torch.utils.data import Dataset
 
+# ====== Helper functions ======= #
 def parse_db_to_networkx(db):
     """convert the db to a networkx graph with proper attributes
     
@@ -114,7 +115,7 @@ def get_tokenised_attention_mask(g, t, size,inf = 1e6):
     fmat = 1 - fmat 
     fmat = fmat * -inf
 
-    return fmat
+    return fmat, sum(sizes)
 
 
 def format_sql(in_str):
@@ -138,91 +139,45 @@ def format_sql(in_str):
     in_str = re.sub(r"\"+", '"', in_str)
     return in_str
 
-# class T2SDataset(Dataset):
-#     def __init__(self, config):
-        
-#         data = []
-#         with open(config.OTHER_FILE) as f1, \
-#             open(config.SPIDER_FILE) as f2, \
-#             open(config.SPARC_FILE) as f3, \
-#             open(config.COSQL_FILE) as f4:
-#             # train_others.json
-#             for x in json.load(f1):
-#                 data.append((x["question"], x["query"], x["db_id"]))
+# ====== Main Class Object ====== #
 
-#             # train_spider.json
-#             for x in json.load(f2):
-#                 data.append((x["question"], x["query"], x["db_id"]))
+class T2SDataset(Dataset):
+    def __init__(self, config):
+        self.config = config
 
-#             # sparc/train.json
-#             for x in json.load(f3):
-#                 data.append((x["final"]["utterance"], x["final"]["query"], x["database_id"]))
+        with open(config.schema_file) as f:
+            schemas = {k:parse_db_to_networkx(v) for k,v in json.load(f).items()}
 
-#             # cosql_all_info_dialogs.json
-#             for x, y in json.load(f4).items():
-#                 data.append((y["query_goal"], y["sql"], y["db_id"]))
+        with open(config.questions_file) as f:
+            # questions = json.load(f)
+            # make the TSV loader
+            pass 
 
-#         self.qsd = data
+        self.schemas = schemas
+        self.questions = questions
 
-#         tables = []
-#         with open(config.SPIDER_TABLES) as f1, open(config.SPARC_TABLES) as f2, open(config.COSQL_TABLES) as f3:
-#             # spider/tables.json
-#             tables.extend(json.load(f1))
+    def __len__(self):
+        return len(self.questions)
 
-#             # sparc/tables.json
-#             tables.extend(json.load(f2))
+    def __getitem__(self, index):
+        question = self.questions[index]
+        # db = 
 
-#             # cosql_dataset/tables.json
-#             tables.extend(json.load(f3))
-
-#         self.db = [parse_db_to_networkx(x) for x in tables]
-
-
-#     def __len__(self):
-#         return self.
 
 class T2SDatasetConfig:
-
-    # paths to main files
-    OTHER_FILE = "/Users/yashbonde/Desktop/AI/text2sql/data/spider/train_others.json"
-    SPIDER_FILE = "/Users/yashbonde/Desktop/AI/text2sql/data/spider/train_spider.json"
-    SPARC_FILE = "/Users/yashbonde/Desktop/AI/text2sql/data/sparc/train.json"
-    COSQL_FILE = "/Users/yashbonde/Desktop/AI/text2sql/data/cosql_dataset/cosql_all_info_dialogs.json"
-
-    # files containing tables info
-    SPIDER_TABLES = "/Users/yashbonde/Desktop/AI/text2sql/data/spider/tables.json"
-    SPARC_TABLES = "/Users/yashbonde/Desktop/AI/text2sql/data/sparc/tables.json"
-    COSQL_TABLES = "/Users/yashbonde/Desktop/AI/text2sql/data/cosql_dataset/tables.json"
-
-    # spider dataset already has sql files that we can read from to tokenize
-    SPIDER_SQL_TRAIN = "/Users/yashbonde/Desktop/AI/text2sql/data/spider/train_gold.sql"
-    SPIDER_SQL_DEV = "/Users/yashbonde/Desktop/AI/text2sql/data/spider/dev_gold.sql"
-
-    # dev set
-    SPIDER_DEV = "/Users/yashbonde/Desktop/AI/text2sql/data/spider/dev.json"
-    SPARC_DEV = "/Users/yashbonde/Desktop/AI/text2sql/data/sparc/dev.json"
+    schema_file = None # json file with schema dump
+    questions_file = None # TSV file with questions-sql dump
+    maxlen_sequence = None # maximum length sequence of SQL
+    maxlen_db_att = None # maximum length of db attention se
 
     def __init__(self, **kwargs):
-        self.attrs = []
+        self.attrs = ["schema_file", "questions_file"]
         for k, v in kwargs.items():
             setattr(self, k, v)
             self.attrs.append(k)
 
     def __repr__(self):
         t = "--------- DatasetConfig ---------\n"
-        kvs = [(k, f"{getattr(self, k)}") for k in sorted(list(set([
-            "OTHER_FILE",
-            "SPIDER_FILE",
-            "SPARC_FILE",
-            "COSQL_FILE",
-            "SPIDER_TABLES",
-            "SPARC_TABLES",
-            "COSQL_TABLES",
-            "SPIDER_SQL_TRAIN",
-            "SPIDER_SQL_DEV",
-            "SPIDER_DEV",
-            "SPARC_DEV",
-        ] + self.attrs
-        )))]
+        kvs = [(k, f"{getattr(self, k)}") for k in sorted(list(set(self.attrs)))]
         t = t + tabulate(kvs, ["argument", "value"], tablefmt="psql")
         return t
