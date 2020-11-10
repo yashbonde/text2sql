@@ -183,7 +183,7 @@ with open(os.path.join(args.data_folder, SPARC_TABLES), "r") as f1,\
 with open(os.path.join(args.data_folder,"all_schema.json"), "w") as f:
     f.write(json.dumps(all_schema))
 
-print(f"Found {len(all_schema)} Schema")
+print(f"Found {len(all_schema)} schemas")
 
 # """
 # Below this was the old language modelling method which was a bad idea due to compute

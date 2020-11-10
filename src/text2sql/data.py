@@ -4,11 +4,14 @@
 import re
 import json
 import numpy as np
+import pandas as pd
 import networkx as nx
 from tabulate import tabulate
 
 import torch
 from torch.utils.data import Dataset
+
+from transformers import DistilBertTokenizer
 
 # ====== Helper functions ======= #
 def parse_db_to_networkx(db):
@@ -142,33 +145,52 @@ def format_sql(in_str):
 # ====== Main Class Object ====== #
 
 class T2SDataset(Dataset):
-    def __init__(self, config):
+    def __init__(self, config, mode):
         self.config = config
 
+        self._tokenizer = config.tokenizer
+
         with open(config.schema_file) as f:
-            schemas = {k:parse_db_to_networkx(v) for k,v in json.load(f).items()}
+            self.schemas = {k:parse_db_to_networkx(v) for k,v in json.load(f).items()}
 
         with open(config.questions_file) as f:
-            # questions = json.load(f)
-            # make the TSV loader
-            pass 
+            df = pd.read_csv(config.questions_file, sep="\t")
+            mode = 1 if mode == "train" else 0
+            df = df[df.train == mode]
 
-        self.schemas = schemas
-        self.questions = questions
+        self.questions = df.question.values
+        self.queries = df.query.values
+        self.db_ids = df.db_id.values
 
     def __len__(self):
         return len(self.questions)
 
     def __getitem__(self, index):
+        config. = self.config
+        t = self.config.tokenizer
+
         question = self.questions[index]
-        # db = 
+        query = self.queries[index]
+        g = self.db_ids[index]
+
+        # get the DB attention matrix
+        db_attn_mat, len = get_tokenised_attention_mask(g, t, size = config.maxlen_db_att)
+        question = t(question)
+        sql = t(query)
+        
+        # 
+
+        
+
+        
+
 
 
 class T2SDatasetConfig:
     schema_file = None # json file with schema dump
     questions_file = None # TSV file with questions-sql dump
     maxlen_sequence = None # maximum length sequence of SQL
-    maxlen_db_att = None # maximum length of db attention se
+    maxlen_db_att = None # maximum length of db attention sequence
 
     def __init__(self, **kwargs):
         self.attrs = ["schema_file", "questions_file"]
@@ -176,8 +198,8 @@ class T2SDatasetConfig:
             setattr(self, k, v)
             self.attrs.append(k)
 
+        self.tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
+
     def __repr__(self):
-        t = "--------- DatasetConfig ---------\n"
         kvs = [(k, f"{getattr(self, k)}") for k in sorted(list(set(self.attrs)))]
-        t = t + tabulate(kvs, ["argument", "value"], tablefmt="psql")
-        return t
+        return tabulate(kvs, ["argument", "value"], tablefmt="psql")
