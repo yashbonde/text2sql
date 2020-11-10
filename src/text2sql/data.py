@@ -69,7 +69,7 @@ def get_db_attention_mask(g, size, device = "cpu", inf = 1e6):
     m = m * inf
     return torch.from_numpy(m).long().to(device), len(A)
 
-def get_tokenised_attention_mask(g, t, size, device = "cpu", inf = -1e6):
+def get_tokenised_attention_mask(g, t, size,inf = 1e6):
     """In method get_db_attention_mask() we do not consider that the tokens
     will have a subword splitting and so the final attention mask will look
     a bit different. This takes care of that by creating mask on subwords
@@ -77,13 +77,44 @@ def get_tokenised_attention_mask(g, t, size, device = "cpu", inf = -1e6):
     :param g: graph
     :param t: tokenizer
     :param size: dimension of the output attention_mask
-    :param device: device to pass this matrix to
     :param inf: what will be the negative infinity value
     """
-    att = get_db_attention_mask(g, size = -1)
-    for n in g.nodes():
-        tokens = t.tokenize(n["id"])
-    pass
+    # att = get_db_attention_mask(g, size = -1)
+    ts = []
+    sizes = []
+    for x in g.nodes().data():
+        # we directly call the internal wordpiece_tokenizer, helps in debugging
+        tokens = tokenizer.wordpiece_tokenizer.tokenize(" ".join([x[1].get("table"), x[1].get("name")]))
+        sizes.append(len(tokens))
+        ts.extend(tokens)
+
+    # get adjacency matrix 
+    mat = nx.adjacency_matrix(g).todense()
+    mat = mat + np.eye(len(mat)) # add self loops
+    mat = mat.tolist()
+
+    # now the code to expand the matrix in place
+    tmat = np.zeros((sum(sizes),sum(sizes)))
+    tid = 0
+    for i in range(len(mat)):
+        idx = np.arange(len(mat))[np.asarray(mat[i]) == 1]
+        for s in range(sizes[i]):
+            for j in idx:
+                start = sum(sizes[:j])
+                end = sum(sizes[:j+1])
+                tmat[tid, start:end] = 1
+            tid += 1
+    tmat = tmat + tmat.T
+    tmat[tmat > 1] = 1
+    tmat = tmat.astype(int)
+    
+    # convert to required shapes and put in masking values
+    fmat = np.zeros((size, size)).astype(int)
+    fmat[:tmat.shape[0], :tmat.shape[0]] = tmat
+    fmat = 1 - fmat 
+    fmat = fmat * -inf
+
+    return fmat
 
 
 def format_sql(in_str):
