@@ -8,7 +8,7 @@ from karpathy/minGPT
 import time
 import random
 import numpy as np
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from tabulate import tabulate
 
 import torch
@@ -59,8 +59,14 @@ class Trainer:
                 )
 
                 losses = []
-                pbar = tqdm(enumerate(dl))
-                for it, d in pbar:
+                if is_train:
+                    pbar = trange(config.num_batch, ncols=100)
+                    iterator = zip(pbar, dl)
+                else:
+                    pbar = tqdm(enumerate(dl))
+                    iterator = pbar
+
+                for it, d in iterator:
 
                     with torch.set_grad_enabled(is_train):
                         _l = -1 if not losses else losses[-1]
@@ -139,6 +145,7 @@ class TrainerConfig:
     num_batch = None
     patience = 5 # training stops after patience runs out
     tb_path = None
+    ckpt_path = None
 
     def __init__(self, **kwargs):
         self.attrs = [ "lr", "max_epochs", "batch_size", "betas",

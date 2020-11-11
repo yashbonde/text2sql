@@ -13,8 +13,6 @@ import sentencepiece as spm
 import torch
 from torch.utils.data import Dataset
 
-from transformers import DistilBertTokenizer
-
 # ====== Helper functions ======= #
 def parse_db_to_networkx(db):
     """convert the db to a networkx graph with proper attributes

@@ -33,10 +33,10 @@ args.add_argument("--seed", default = None, type = int, help = "seed value for t
 
 # --- arch
 args.add_argument("--n_embd", default = 144, type = int, help = "Embedding Dim")
-args.add_argument("--n_decoder_layers", default = 3, type = int, help = "Num Decoder layers")
-args.add_argument("--n_sent_layers", default = 3, type = int, help = "Num layers for sentence encoder")
-args.add_argument("--n_db_layers", default = 3, type = int, help = "Num layers for DB encoder")
-args.add_argument("--n_head", default = 6, type = int, help = "Num Heads")
+args.add_argument("--n_decoder_layers", default = 2, type = int, help = "Num Decoder layers")
+args.add_argument("--n_sent_layers", default = 2, type = int, help = "Num layers for sentence encoder")
+args.add_argument("--n_db_layers", default = 2, type = int, help = "Num layers for DB encoder")
+args.add_argument("--n_head", default = 4, type = int, help = "Num Heads")
 args.add_argument("--maxlen", default = 200, type = int, help = "Maximum length of decoder")
 
 # --- data
@@ -46,8 +46,8 @@ args.add_argument("--fmax", default = 0.8, type = float, help = "Max fields prob
 args.add_argument("--fmin", default = 0.1, type = float, help = "Min fields probability")
 
 # --- trainer
-args.add_argument("--n_epochs", default = 100, type = int, help = "Number of epochs to train")
-args.add_argument("--batch_size", default = 200, type = int, help = "Mini-Batch Size")
+args.add_argument("--n_epochs", default = 5, type = int, help = "Number of epochs to train")
+args.add_argument("--batch_size", default = 56, type = int, help = "Mini-Batch Size")
 args.add_argument("--lr", default = 1e-3, type = float, help = "Learning Rate")
 args.add_argument("--sample_every", default = 5, type = int, help = "After t")
 args.add_argument("--train_ratio", default = 0.9, type = float, help = "Ratio of train data, rest is testing")
@@ -100,6 +100,7 @@ trainConfig = TrainerConfig(
     num_batch=(len(dtrain) // args.batch_size) + int(len(dtrain) % args.batch_size != 0),
     patience=args.patience,
     tb_path=args.tb_path,
+    ckpt_path=args.ckpt_path
 )
 
 print(modelConfig)

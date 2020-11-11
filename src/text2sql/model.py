@@ -75,12 +75,16 @@ class Attention(nn.Module):
         if self.scale:
             w = w / (float(v.size(-1)) ** 0.5)
 
+        # print("((((", w.size(), attention_mask.size())
+
         if attention_mask is not None:
             # Apply the attention mask
             w = w + attention_mask
 
         w = nn.Softmax(dim=-1)(w)
         w = self.attn_dropout(w)
+
+        # print(w.size(), v.size())
 
         outputs = [torch.matmul(w, v)]
         if output_attentions:
@@ -134,6 +138,8 @@ class Attention(nn.Module):
         else:
             present = (None,)
 
+        # print(query.size(), key.size(), value.size())
+
         attn_outputs = self._attn(query, key, value, attention_mask, head_mask, output_attentions)
         a = attn_outputs[0]
 
@@ -176,6 +182,7 @@ class Block(nn.Module):
     def forward(self, x):
         # this was not taking key word arguments in Sequential so need to pass around a tuple
         type_ =x[0]
+        # print("^^^^", type_, len(x))
         if type_ in ["encoder", "self"]:
             (hidden_states, attention_mask) = x[1:]
         else:
@@ -344,8 +351,8 @@ class Text2SQLModel(nn.Module):
     def encoder_fn(self, sent, db, sent_attn, db_attn, device):
         sent = self.embedding(sent) + self.wte_sent(self.get_position_ids(sent, past_length = 0, device = device))
         db = self.embedding(db) + self.wte_db(self.get_position_ids(db, past_length = 0, device = device))
-        sent_hidden_states = self.sentence_encoder(("encoder", sent, sent_attn),)
-        db_hidden_states = self.db_encoder(("encoder", db, db_attn),)
+        sent_hidden_states = self.sentence_encoder(("encoder", sent, sent_attn),)[1]
+        db_hidden_states = self.db_encoder(("encoder", db, db_attn),)[1]
         return SimpleNamespace(
             sent_hidden_states=sent_hidden_states,
             db_hidden_states=db_hidden_states,
@@ -355,14 +362,8 @@ class Text2SQLModel(nn.Module):
 
     def decoder_fn(self, enc_out, sql, sql_attn, device):
         sql = self.embedding(sql) + self.wte_sql(self.get_position_ids(sql, past_length = 0, device = device))
-        sql_output = self.decoder(
-            hidden_states_sql=sql,
-            attention_mask_sql=sql_attn,
-            hidden_states_sent=enc_out.sent_hidden_states,
-            attention_mask_sent=enc_out.sent_attn,
-            hidden_states_db=enc_out.db_hidden_states,
-            attention_mask_db=enc_out.db_attn,
-        )
+        sql_output = self.decoder((sql, sql_attn, enc_out.sent_hidden_states,
+                                   enc_out.sent_attn, enc_out.db_hidden_states, enc_out.db_attn),)[0]
         sql_output = self.lm_head(sql_output)
         return sql_output
 
@@ -446,20 +447,25 @@ class Text2SQLModelConfig():
 def top_k_logits(logits, k):
     v, ix = torch.topk(logits, k)
     out = logits.clone()
-    out[out < v[:, [-1]]] = -float('Inf')
+    out[out < v[:, [-1]]] = -1e6
     return out
 
 
 @torch.no_grad()
 def sample(model, sent, sent_attn, db, db_attn, t, sql_str = None, device="cpu", steps=50, temperature=50, top_k=None):
     model.eval()
-    enc_out = model.encoder(sent, db, sent_attn, db_attn, device=device)
+    sent = sent.view(-1, sent.size(0))
+    db = db.view(-1, db.size(0))
+    sent_attn = sent_attn.view(-1, *sent_attn.size())
+    db_attn = db_attn.view(-1, *db_attn.size())
+    print(sent.size(), db.size(), sent_attn.size(), db_attn.size())
+    enc_out = model.encoder_fn(sent, db, sent_attn, db_attn, device=device)
 
     # convert string to sql_tokens
     if sql_str is not None:
-        sql = [t.encode(sql_str)]
+        sql = torch.from_numpy(np.asarray([t.encode(sql_str)])).long()
     else:
-        sql = torch.ones([t.bos_id()]).view(-1, 1)
+        sql = torch.from_numpy(np.asarray([t.bos_id()])).view(-1, 1).long()
     sql = sql.to(device)
 
     # final sequence
@@ -468,13 +474,13 @@ def sample(model, sent, sent_attn, db, db_attn, t, sql_str = None, device="cpu",
     for k in range(steps):
         x = sql if sql.size(1) < model.config.maxlen else sql[:, -model.config.maxlen:]
 
-        sql_attn = np.ones((len(sql), len(sql)))
+        sql_attn = np.ones((len(sql[0]), len(sql[0])))
         sql_attn = sql_attn - np.triu(sql_attn, k = 1)
         sql_attn = 1 - sql_attn
         sql_attn = sql_attn * -1e6
-        sql_attn = torch.from_numpy(sql_attn.astpye(np.float32)).to(device)
+        sql_attn = torch.from_numpy(sql_attn.astype(np.float32)).to(device).view(1, 1, *sql_attn.shape)
 
-        logits = model.decoder(enc_out, x, sql_attn, device=device)
+        logits = model.decoder_fn(enc_out, x, sql_attn, device=device)
 
         # pluck the logits at the final step and scale by temperature
         logits = logits[:, -1, :] / temperature
@@ -492,6 +498,6 @@ def sample(model, sent, sent_attn, db, db_attn, t, sql_str = None, device="cpu",
         # append to the sequence and continue
         x = torch.cat((x, ix), dim=1)
 
-        out.append(t.decode_ids(ix[0]))
+        out.append(t.decode_ids(ix[0].tolist()))
 
-    return out
+    return " ".join(out)
