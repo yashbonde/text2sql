@@ -39,6 +39,8 @@ There are couple of tricks I have used that can be improved:
 * filtering message passing using attention masks
 * fixed the sequence size in all blocks to 400
 
+For generation I am using the code from my other [repo](https://github.com/yashbonde/o2f), which is trimmed down functional version of huggingface generation code.
+
 ## Training
 
 To train the model first need to parse and create the datasets, download the data from above mentioned links, extract and place them all in the same folder (or use pre-parsed in `/fdata`). Then run the command

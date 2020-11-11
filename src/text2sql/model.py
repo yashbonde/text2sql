@@ -1,10 +1,13 @@
 """model for text2sql
 03.11.2020 - @yashbonde"""
 
+import numpy as np
 from tabulate import tabulate
+from types import SimpleNamespace
 
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 from transformers.modeling_utils import (
     Conv1D,
     find_pruneable_heads_and_indices,
@@ -297,6 +300,31 @@ class Text2SQLModel(nn.Module):
         position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
         return position_ids
 
+    def encoder(self, sent, db, sent_attn, db_attn, device = "cpu"):
+        sent = self.embedding(sent) + self.wte_sent(self.get_position_ids(sent, past_length = 0, device = device))
+        db = self.embedding(db) + self.wte_db(self.get_position_ids(db, past_length = 0, device = device))
+        sent_hidden_states = self.sentence_encoder(sent, attention_mask = sent_attn)
+        db_hidden_states = self.db_encoder(db, attention_mask = db_attn)
+        return SimpleNamespace(
+            sent_hidden_states=sent_hidden_states,
+            db_hidden_states=db_hidden_states,
+            sent_attn=sent_attn,
+            db_attn=db_attn
+        )
+
+    def decoder(self, enc_out, sql, sql_attn, device = "cpu"):
+        sql = self.embedding(sql) + self.wte_sql(self.get_position_ids(sql, past_length = 0, device = device))
+        sql_output = self.decoder(
+            hidden_states_sql=sql,
+            attention_mask_sql=sql_attn,
+            hidden_states_sent=enc_out.sent_hidden_states,
+            attention_mask_sent=enc_out.sent_attn,
+            hidden_states_db=enc_out.db_hidden_states,
+            attention_mask_db=enc_out.db_attn,
+        )
+        sql_output = self.lm_head(sql_output)
+        return sql_output
+
     def forward(self, sql, sent, db, sql_attn, sent_attn, db_attn, get_loss = False, past_length = 0, device = "cpu"):
         # make the embeddings
         sql = self.embedding(sql) + self.wte_sql(self.get_position_ids(sql, past_length = past_length, device = device))
@@ -314,6 +342,7 @@ class Text2SQLModel(nn.Module):
             hidden_states_db = db_hidden_states,
             attention_mask_db = db_attn,
         )
+        sql_output = self.lm_head(sql_output)
         output = [sql_output]
 
         if get_loss:
@@ -378,3 +407,56 @@ class ModelConfig():
         kvs = [(k, f"{getattr(self, k)}") for k in sorted(list(set(self.attrs)))]
         return tabulate(kvs, ["argument", "value"], tablefmt="psql")
 
+# ====== Sampling Utils ====== #
+def top_k_logits(logits, k):
+    v, ix = torch.topk(logits, k)
+    out = logits.clone()
+    out[out < v[:, [-1]]] = -float('Inf')
+    return out
+
+
+@torch.no_grad()
+def sample(model, sent, sent_attn, db, db_attn, t, sql_str = None, device="cpu", steps=50, temperature=50, top_k=None):
+    model.eval()
+    enc_out = model.encoder(sent, db, sent_attn, db_attn, device=device)
+
+    # convert string to sql_tokens
+    if sql_str is not None:
+        sql = [t.encode(sql_str)]
+    else:
+        sql = torch.ones([t.bos_id()]).view(-1, 1)
+    sql = sql.to(device)
+
+    # final sequence
+    out = []
+
+    for k in range(steps):
+        x = sql if sql.size(1) < model.config.maxlen else sql[:, -model.config.maxlen:]
+
+        sql_attn = np.ones((len(sql), len(sql)))
+        sql_attn = sql_attn - np.triu(sql_attn, k = 1)
+        sql_attn = 1 - sql_attn
+        sql_attn = sql_attn * -1e6
+        sql_attn = torch.from_numpy(sql_attn.astpye(np.float32)).to(device)
+
+        logits = model.decoder(enc_out, x, sql_attn, device=device)
+
+        # pluck the logits at the final step and scale by temperature
+        logits = logits[:, -1, :] / temperature
+        # optionally crop probabilities to only the top k options
+        if top_k is not None:
+            logits = top_k_logits(logits, top_k)
+
+        # apply softmax to convert to probabilities
+        probs = F.softmax(logits, dim=-1)
+        # sample from the distribution or take the most likely
+        if sample:
+            ix = torch.multinomial(probs, num_samples=1)
+        else:
+            _, ix = torch.topk(probs, k=1, dim=-1)
+        # append to the sequence and continue
+        x = torch.cat((x, ix), dim=1)
+
+        out.append(t.decode_ids(ix[0]))
+
+    return out
