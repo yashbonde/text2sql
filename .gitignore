@@ -4,6 +4,7 @@ cosql_dataset/
 data/
 .vscode/
 notebooks/
+models/
 
 __pycache__/
 

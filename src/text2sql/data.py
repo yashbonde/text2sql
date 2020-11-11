@@ -123,7 +123,9 @@ def get_tokenised_attention_mask(g, t, size = None, inf = 1e6):
     if size is not None:
         # convert to required shapes and put in masking values
         fmat = np.zeros((size, size)).astype(int)
-        fmat[:min(tmat.shape[0], size), :min(tmat.shape[0], size)] = tmat
+        if size < len(tmat):
+            tmat = tmat[:size, :size]
+        fmat[:tmat.shape[0], :tmat.shape[0]] = tmat
         fmat = 1 - fmat 
         fmat = fmat * -inf
 
@@ -207,25 +209,35 @@ class T2SDataset(Dataset):
         # prepare the sql query
         sql = self.queries[index]
         sql = [t.bos_id()] + t.encode(sql) + [t.bos_id()]
-        sent_len = len(sql)
-        if config.maxlen > len(sql):
-            sql = sql + [t.pad_id() for _ in range(config.maxlen - len(sql))]
+        sql_len = len(sql)
+        if config.maxlen > len(sql) + 1:
+            sql = sql + [t.pad_id() for _ in range(config.maxlen - len(sql) + 1)]
         else:
-            sql = sql[:config.maxlen]
+            sql = sql[:config.maxlen + 1]
         sql_attn = np.zeros((config.maxlen, config.maxlen)).astype(np.int32)
-        sql_attn[:sent_len, :sent_len] = 1
+        sql_attn[:sql_len, :sql_len] = 1
         sql_attn = sql_attn - np.triu(sql_attn, k = 1) # casual masking
         sql_attn = 1 - sql_attn
         sql_attn = sql_attn * -1e6
+        
+        
+        # create labels
+        labels = torch.from_numpy(np.asarray(sql[1:])).long()
+        labels[sql_len-1:] = -100 # minus 1 because already shifted
+
+        # create input ids
+        sql_ids = torch.from_numpy(np.asarray(sql[:-1])).long()
+        sql_ids[sql_len:] = -100
 
         # return the output dictionary
         return {
-            "sql": torch.from_numpy(np.asarray(sql)).long(),
+            "sql_ids": torch.from_numpy(np.asarray(sql[:-1])).long(),
+            "labels": labels,
             "sent": torch.from_numpy(np.asarray(question)).long(),
             "db": torch.from_numpy(np.asarray(db_tokens)).long(),
-            "sql_attn": torch.from_numpy(np.asarray(sql_attn)).long(),
-            "sent_attn": torch.from_numpy(np.asarray(sent_attn)).long(),
-            "db_attn": torch.from_numpy(np.asarray(db_attn_mat)).long()
+            "sql_attn": torch.from_numpy(np.asarray([sql_attn]).astype(np.float32)),
+            "sent_attn": torch.from_numpy(np.asarray([sent_attn]).astype(np.float32)),
+            "db_attn": torch.from_numpy(np.asarray([db_attn_mat]).astype(np.float32))
         }
 
 
@@ -235,6 +247,7 @@ class T2SDatasetConfig:
     maxlen = 400 # maximum length for all is same for simplicity
     # also same size helps fit in the encoder mask as well as the
     # cross attention mask
+    tokenizer_path = None
 
     def __init__(self, **kwargs):
         self.attrs = ["schema_file", "questions_file", "maxlen"]
@@ -244,6 +257,8 @@ class T2SDatasetConfig:
 
         self.tokenizer = spm.SentencePieceProcessor()
         self.tokenizer.load(self.tokenizer_path)
+
+        print(f"Loaded Tokenizer: {self.tokenizer}")
 
     def __repr__(self):
         kvs = [(k, f"{getattr(self, k)}") for k in sorted(list(set(self.attrs)))]

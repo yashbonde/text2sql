@@ -9,6 +9,7 @@ import time
 import random
 import numpy as np
 from tqdm import tqdm
+from tabulate import tabulate
 
 import torch
 from torch.optim.lr_scheduler import OneCycleLR
@@ -39,8 +40,10 @@ class Trainer:
         lrscheduler = OneCycleLR(
             optimizer,
             max_lr = config.lr,
-            total_steps=config.num_batch*config.max_epochs*config.tmult
+            total_steps=config.num_batch*config.max_epochs
         )
+
+        print("Starting training...", lrscheduler)
 
         with SummaryWriter(log_dir=config.tb_path, flush_secs=20) as tb:
             
@@ -53,7 +56,6 @@ class Trainer:
                     shuffle = True,
                     pin_memory = True,
                     batch_size = config.batch_size,
-                    num_workers = config.num_workers
                 )
 
                 losses = []
@@ -61,38 +63,38 @@ class Trainer:
                 for it, d in pbar:
 
                     with torch.set_grad_enabled(is_train):
-                        total_steps = d["input"].size(1)
-                        for t_step in range(total_steps):
-                            _l = -1 if not losses else losses[-1]
-                            if is_train:
-                                pbar.set_description(f"[TRAIN] GS: {_gs}, Time: {t_step}/{total_steps},"
-                                f" Epoch: {epoch}, Loss: {round(_l, 5)}")
-                            else:
-                                pbar.set_description(f"[VAL] Epoch: {epoch}")
+                        _l = -1 if not losses else losses[-1]
+                        if is_train:
+                            pbar.set_description(f"[TRAIN] GS: {_gs}, Epoch: {epoch}, Loss: {round(_l, 5)}")
+                            # print(f"[TRAIN] GS: {_gs}, Time: {t_step}/{total_steps},"
+                            #       f" Epoch: {epoch}, Loss: {round(_l, 5)}")
+                        else:
+                            pbar.set_description(f"[VAL] Epoch: {epoch}")
 
-                            loss, logits = model(
-                                **{k:v.to(self.device) for k,v in d.items()},
-                                get_loss=True,
-                                device = self.device
-                            )
-                            losses.append(loss.item())
+                        # print({k:(v.size(), v.dtype) for k,v in d.items()})
 
-                            if is_train:
-                                # add things to tb, loss and attention images
-                                tb.add_scalar("loss", loss.item(), global_step=_gs, walltime=time.time())
-                                tb.add_scalar("lr", lrscheduler.get_lr()[0], global_step=_gs, walltime=time.time())
-                                # for l, att in enumerate(out.attentions):
-                                #     tb.add_image(
-                                #         f"attention/layer_{l}", att[0][0],
-                                #         global_step=gs, walltime=time.time(),
-                                #         dataformats= "HW"
-                                #     )
+                        loss, logits = model(
+                            **{k:v.to(self.device) for k,v in d.items()},
+                            device = self.device
+                        )
+                        losses.append(loss.item())
 
-                                loss.backward()
-                                torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
-                                optimizer.step()
-                                lrscheduler.step()
-                                _gs += 1
+                        if is_train:
+                            # add things to tb, loss and attention images
+                            tb.add_scalar("loss", loss.item(), global_step=_gs, walltime=time.time())
+                            tb.add_scalar("lr", lrscheduler.get_lr()[0], global_step=_gs, walltime=time.time())
+                            # for l, att in enumerate(out.attentions):
+                            #     tb.add_image(
+                            #         f"attention/layer_{l}", att[0][0],
+                            #         global_step=gs, walltime=time.time(),
+                            #         dataformats= "HW"
+                            #     )
+
+                            loss.backward()
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
+                            optimizer.step()
+                            lrscheduler.step()
+                            _gs += 1
 
                 if not is_train:
                     # no sampling here, because that really doesn't make any sense
@@ -131,41 +133,26 @@ class TrainerConfig:
     batch_size = 128
     betas = (0.9, 0.95)
     grad_norm_clip = 1.0
-    num_workers = 0 # for DataLoader
     weight_decay = 0.1 # only applied on matmul weights
-
-    len_data = None # required for CosineAnnealing
+    len_data = None  # required for OneCycleLR
     sample_every = 5 # after how many epochs to log
     num_batch = None
-    
     patience = 5 # training stops after patience runs out
-
-    memlen = None # memory lenght of the model
-    seqlen = None # length on which it is trained
+    tb_path = None
 
     def __init__(self, **kwargs):
-        self.attrs = []
+        self.attrs = [ "lr", "max_epochs", "batch_size", "betas",
+            "grad_norm_clip", "weight_decay", "len_data",
+            "sample_every", "num_batch", "patience", "tb_path",
+        ]
         for k,v in kwargs.items():
             setattr(self, k, v)
             self.attrs.append(k)
 
-        self.num_batch = (self.len_data // self.batch_size) + int(self.len_data % self.batch_size != 0)
-        self.tmult = self.memlen // self.seqlen # each sample has its own number of time steps
-
     def __repr__(self):
-        return "---- TRAINER CONFIGURATION ----\n" + \
-            "\n".join([f"{k}\t{getattr(self, k)}" for k in list(set([
-                "max_epochs",
-                "batch_size",
-                "betas",
-                "grad_norm_clip",
-                "num_workers",
-                "sample_every",
-                "num_batch",
-                "len_data",
-                "patience"
-            ] + self.attrs))
-        ]) + "\n"
+        kvs = [(k, f"{getattr(self, k)}") for k in sorted(list(set(self.attrs)))]
+        return tabulate(kvs, ["argument", "value"], tablefmt="psql")
+
 
 # funcs
 def set_seed(seed):

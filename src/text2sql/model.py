@@ -8,14 +8,28 @@ from types import SimpleNamespace
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from transformers.modeling_utils import (
-    Conv1D,
-    find_pruneable_heads_and_indices,
-    prune_conv1d_layer,
-)
+from transformers.modeling_utils import find_pruneable_heads_and_indices, prune_conv1d_layer
 from transformers.activations import ACT2FN
 
 # the code below is only a slighlty modified version from huggingface.
+
+
+class Conv1D(nn.Module):
+    def __init__(self, nf, nx):
+        super().__init__()
+        self.nf = nf
+        w = torch.empty(nx, nf)
+        nn.init.normal_(w, std=0.02)
+        self.weight = nn.Parameter(w)
+        self.bias = nn.Parameter(torch.zeros(nf))
+
+    def forward(self, x):
+        size_out = x.size()[:-1] + (self.nf,)
+        x = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
+        x = x.view(*size_out)
+        return x
+
+
 
 class Attention(nn.Module):
     def __init__(self, nx, n_ctx, config, scale=False, is_cross_attention=False):
@@ -159,31 +173,24 @@ class Block(nn.Module):
             self.ln_cross_attn = nn.LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
         self.mlp = MLP(inner_dim, config)
 
-    def forward(
-        self,
-        hidden_states,
-        layer_past=None,
-        attention_mask=None,
-        head_mask=None,
-        encoder_hidden_states=None,
-        encoder_attention_mask=None,
-        use_cache=False,
-        output_attentions=False,
-    ):
+    def forward(self, x):
+        # this was not taking key word arguments in Sequential so need to pass around a tuple
+        type_ =x[0]
+        if type_ in ["encoder", "self"]:
+            (hidden_states, attention_mask) = x[1:]
+        else:
+            (hidden_states, attention_mask, encoder_hidden_states, encoder_attention_mask) = x[1:]
+
         attn_outputs = self.attn(
             self.ln_1(hidden_states),
-            layer_past=layer_past,
             attention_mask=attention_mask,
-            head_mask=head_mask,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
         )
         attn_output = attn_outputs[0]  # output_attn: a, present, (attentions)
         outputs = attn_outputs[1:]
         # residual connection
         hidden_states = attn_output + hidden_states
 
-        if encoder_hidden_states is not None:
+        if type_ == "decoder":
             # add one self-attention block for cross-attention
             assert hasattr(
                 self, "crossattention"
@@ -191,10 +198,8 @@ class Block(nn.Module):
             cross_attn_outputs = self.crossattention(
                 self.ln_cross_attn(hidden_states),
                 attention_mask=attention_mask,
-                head_mask=head_mask,
                 encoder_hidden_states=encoder_hidden_states,
                 encoder_attention_mask=encoder_attention_mask,
-                output_attentions=output_attentions,
             )
             attn_output = cross_attn_outputs[0]
             # residual connection
@@ -206,7 +211,11 @@ class Block(nn.Module):
         hidden_states = hidden_states + feed_forward_hidden_states
 
         outputs = [hidden_states] + outputs
-        return outputs  # hidden_states, present, (attentions, cross_attentions)
+        if type_ in ["encoder", "self"]:
+            out = (type_, hidden_states, attention_mask)
+        else:
+            out = (type_, hidden_states, attention_mask, encoder_hidden_states, encoder_attention_mask)
+        return out
 
 
 class Decoder(nn.Module):
@@ -215,48 +224,33 @@ class Decoder(nn.Module):
 
         blocks = []
         for i in range(config.n_decoder_layers):
-            blocks.append(Block(config, n_ctx = config.maxlen_sql,  add_cross_attention = False)) # casual
-            blocks.append(Block(config, n_ctx = config.maxlen_sql, add_cross_attention = True)) # sent
-            blocks.append(Block(config, n_ctx = config.maxlen_sql, add_cross_attention = True)) # db
-        self.blocks = nn.ModuleList(blocks)
+            blocks.append(Block(config, n_ctx = config.maxlen,  add_cross_attention = False)) # casual
+            blocks.append(Block(config, n_ctx = config.maxlen, add_cross_attention = True)) # sent
+            blocks.append(Block(config, n_ctx = config.maxlen, add_cross_attention = True)) # db
+        self.blocks = nn.Sequential(*blocks)
         self.ln = nn.LayerNorm(config.n_embd, eps = config.layer_norm_epsilon)
 
-    def forward(self,
-            hidden_states_sql, attention_mask_sql,
-            hidden_states_sent, attention_mask_sent,
-            hidden_states_db, attention_mask_db
-        ):
-
+    def forward(self, x):
+        # this was not taking key word arguments in Sequential so need to pass around a tuple
+        (hidden_states_sql, attention_mask_sql, hidden_states_sent, attention_mask_sent, hidden_states_db, attention_mask_db) = x
+        
         hidden_states = hidden_states_sql
-
         l = 0
         for i, block in enumerate(self.blocks):
             if l == 0: # casual attention
-                outputs = block(
-                    hidden_states,
-                    attention_mask=attention_mask_sql,
-                    encoder_hidden_states=None,
-                    encoder_attention_mask=None
-                )
+                outputs = block(("self", hidden_states, attention_mask_sql))
                 l = 1
             elif l == 1: # sentence attention
-                outputs = block(
-                    hidden_states,
-                    attention_mask=attention_mask_sql,
-                    encoder_hidden_states=hidden_states_sent,
-                    encoder_attention_mask=attention_mask_sent
-                )
+                outputs = block(("decoder", hidden_states, attention_mask_sql, hidden_states_sent, attention_mask_sent))
                 l = 2
             else: # db attention
-                outputs = outputs = block(
-                    hidden_states,
-                    attention_mask=attention_mask_sql,
-                    encoder_hidden_states=hidden_states_db,
-                    encoder_attention_mask=attention_mask_db
-                )
+                outputs = block(("decoder", hidden_states, attention_mask_sql, hidden_states_db, attention_mask_db))
                 l = 0
-            hidden_states = outputs[0]
-        return self.ln(hidden_states)
+            hidden_states = outputs[1]
+        hidden_states_sql = hidden_states
+        return (hidden_states_sql, attention_mask_sql,
+                hidden_states_sent, attention_mask_sent,
+                hidden_states_db, attention_mask_db)
 
 
 class Text2SQLModel(nn.Module):
@@ -265,16 +259,16 @@ class Text2SQLModel(nn.Module):
         self.config = config
 
         self.embedding = nn.Embedding(config.vocab_size, config.n_embd)
-        self.wte_sent = nn.Embedding(config.maxlen_sent, config.n_embd)
-        self.wte_db = nn.Embedding(config.maxlen_db, config.n_embd)
-        self.wte_sql = nn.Embedding(config.maxlen_sql, config.n_embd)
+        self.wte_sent = nn.Embedding(config.maxlen, config.n_embd)
+        self.wte_db = nn.Embedding(config.maxlen, config.n_embd)
+        self.wte_sql = nn.Embedding(config.maxlen, config.n_embd)
 
-        self.sentence_encoder = nn.ModuleList([
-            Block(config, n_ctx=config.maxlen_sent, add_cross_attention=False)
+        self.sentence_encoder = nn.Sequential(*[
+            Block(config, n_ctx=config.maxlen, add_cross_attention=False)
             for _ in range(config.n_sent_layers)
         ])
-        self.db_encoder = nn.ModuleList([
-            Block(config, n_ctx=config.maxlen_db, add_cross_attention=False)
+        self.db_encoder = nn.Sequential(*[
+            Block(config, n_ctx=config.maxlen, add_cross_attention=False)
             for _ in range(config.n_db_layers)
         ])
         self.decoder = Decoder(config)
@@ -301,39 +295,44 @@ class Text2SQLModel(nn.Module):
         We are then returning the PyTorch optimizer object.
         """
 
-        # separate out all parameters to those that will and won't experience regularizing weight decay
-        decay = set()
-        no_decay = set()
-        whitelist_weight_modules = (torch.nn.Linear, )
-        blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
-        for mn, m in self.named_modules():
-            for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+        # # separate out all parameters to those that will and won't experience regularizing weight decay
+        # decay = set()
+        # no_decay = set()
+        # whitelist_weight_modules = (torch.nn.Linear, )
+        # blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
+        # for mn, m in self.named_modules():
+        #     for pn, p in m.named_parameters():
+        #         # print(mn, "--", pn)
+        #         fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+        #         print(fpn, type(m))
+        #         if fpn.endswith('bias'):
+        #             # all biases will not be decayed
+        #             no_decay.add(fpn)
+        #             print(fpn, "--", 1)
+        #         elif fpn.endswith('weight') and isinstance(m, whitelist_weight_modules):
+        #             # weights of whitelist modules will be weight decayed
+        #             decay.add(fpn)
+        #             print(fpn, "--", 2)
+        #         elif fpn.endswith('weight') and isinstance(m, blacklist_weight_modules):
+        #             # weights of blacklist modules will NOT be weight decayed
+        #             no_decay.add(fpn)
+        #             print(fpn, "--", 3)
+        #         print()
 
-                if pn.endswith('bias'):
-                    # all biases will not be decayed
-                    no_decay.add(fpn)
-                elif pn.endswith('weight') and isinstance(m, whitelist_weight_modules):
-                    # weights of whitelist modules will be weight decayed
-                    decay.add(fpn)
-                elif pn.endswith('weight') and isinstance(m, blacklist_weight_modules):
-                    # weights of blacklist modules will NOT be weight decayed
-                    no_decay.add(fpn)
+        # # validate that we considered every parameter
+        # param_dict = {pn: p for pn, p in self.named_parameters()}
+        # inter_params = decay & no_decay
+        # union_params = decay | no_decay
+        # assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
+        # assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
+        #                                             % (str(param_dict.keys() - union_params), )
 
-        # validate that we considered every parameter
-        param_dict = {pn: p for pn, p in self.named_parameters()}
-        inter_params = decay & no_decay
-        union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
-
-        # create the pytorch optimizer object
-        optim_groups = [
-            {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
-            {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
-        ]
-        optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
+        # # create the pytorch optimizer object
+        # optim_groups = [
+        #     {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
+        #     {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
+        # ]
+        optimizer = torch.optim.AdamW(self.parameters(), lr=train_config.lr, betas=train_config.betas)
         return optimizer
 
     def get_position_ids(self, input, past_length, device):
@@ -342,11 +341,11 @@ class Text2SQLModel(nn.Module):
         position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
         return position_ids
 
-    def encoder(self, sent, db, sent_attn, db_attn, device = "cpu"):
+    def encoder_fn(self, sent, db, sent_attn, db_attn, device):
         sent = self.embedding(sent) + self.wte_sent(self.get_position_ids(sent, past_length = 0, device = device))
         db = self.embedding(db) + self.wte_db(self.get_position_ids(db, past_length = 0, device = device))
-        sent_hidden_states = self.sentence_encoder(sent, attention_mask = sent_attn)
-        db_hidden_states = self.db_encoder(db, attention_mask = db_attn)
+        sent_hidden_states = self.sentence_encoder(("encoder", sent, sent_attn),)
+        db_hidden_states = self.db_encoder(("encoder", db, db_attn),)
         return SimpleNamespace(
             sent_hidden_states=sent_hidden_states,
             db_hidden_states=db_hidden_states,
@@ -354,7 +353,7 @@ class Text2SQLModel(nn.Module):
             db_attn=db_attn
         )
 
-    def decoder(self, enc_out, sql, sql_attn, device = "cpu"):
+    def decoder_fn(self, enc_out, sql, sql_attn, device):
         sql = self.embedding(sql) + self.wte_sql(self.get_position_ids(sql, past_length = 0, device = device))
         sql_output = self.decoder(
             hidden_states_sql=sql,
@@ -367,51 +366,47 @@ class Text2SQLModel(nn.Module):
         sql_output = self.lm_head(sql_output)
         return sql_output
 
-    def forward(self, sql, sent, db, sql_attn, sent_attn, db_attn, get_loss = False, past_length = 0, device = "cpu"):
+    def forward(self, sql_ids, sent, db, sql_attn, sent_attn, db_attn, labels=None, past_length=0, device="cpu"):
         # make the embeddings
-        sql = self.embedding(sql) + self.wte_sql(self.get_position_ids(sql, past_length = past_length, device = device))
+        sql = self.embedding(sql_ids) + self.wte_sql(self.get_position_ids(sql_ids, past_length = past_length, device = device))
         sent = self.embedding(sent) + self.wte_sent(self.get_position_ids(sent, past_length = 0, device = device))
         db = self.embedding(db) + self.wte_db(self.get_position_ids(db, past_length = 0, device = device))
 
         # get hidden_states for sentence_encoder
-        sent_hidden_states = self.sentence_encoder(sent, attention_mask = sent_attn)
-        db_hidden_states = self.db_encoder(db, attention_mask = db_attn)
-        sql_output = self.decoder(
-            hidden_states_sql = sql,
-            attention_mask_sql = sql_attn,
-            hidden_states_sent = sent_hidden_states,
-            attention_mask_sent = sent_attn,
-            hidden_states_db = db_hidden_states,
-            attention_mask_db = db_attn,
-        )
+        sent_hidden_states = self.sentence_encoder(("encoder", sent, sent_attn),)[1]
+        db_hidden_states = self.db_encoder(("encoder", db, db_attn),)[1]
+        sql_output = self.decoder((sql, sql_attn, sent_hidden_states, sent_attn, db_hidden_states, db_attn),)[0]
         sql_output = self.lm_head(sql_output)
         output = [sql_output]
 
-        if get_loss:
-            labels = sql[:, 1:].contiguous()
-            logits = sql_output[:, :-1].contiguous()
-            loss_fct = nn.CrossEntropyLoss(reduction="none")
+        if labels is not None:
+            labels = labels.contiguous()
+            logits = sql_output.contiguous()
+            
+            # loss_fct = nn.CrossEntropyLoss(reduction="none")
+            # loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
+
+            loss_fct = nn.CrossEntropyLoss(reduction="mean")
             loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
             
-            # get the indexes where the labels are not [PAD]
-            non_pad_loss = loss[sql_attn.contiguous().view(-1) == 0]
-            loss = non_pad_loss.mean()
+            # # get the indexes where the labels are not [PAD]
+            # non_pad_mask = sql_attn[:, :, 0, 1:].contiguous().view(-1) == 0
+            # print(loss.size(), non_pad_mask.size())
+            # non_pad_loss = loss[non_pad_mask]
+            # print("non_pad_loss", non_pad_loss)
+            # loss = non_pad_loss.mean()
             output = [loss] + output
 
         return output
 
-class ModelConfig():
+
+class Text2SQLModelConfig():
     vocab_size = 5012
     n_embd = 256
-
-    maxlen_sent = 128
-    maxlen_db = 128
-    maxlen_sql = 128
-    
+    maxlen = 128
     n_decoder_layers = 2
     n_sent_layers = 3
     n_db_layers = 3
-
     n_head = 8
     n_inner = None
     activation_function = "gelu_new"
@@ -425,9 +420,7 @@ class ModelConfig():
         self.attrs = [
             "vocab_size",
             "n_embd",
-            "maxlen_sent",
-            "maxlen_db",
-            "maxlen_sql",
+            "maxlen",
             "n_decoder_layers",
             "n_sent_layers",
             "n_db_layers",
