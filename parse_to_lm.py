@@ -70,14 +70,17 @@ import pandas as pd
 import networkx as nx  # each table is a graph
 from argparse import ArgumentParser
 
-from text2sql.data import format_sql
+import sentencepiece
+
+from text2sql.data import format_sql, get_db_graph_string, parse_db_to_networkx
 
 args = ArgumentParser(description="This file converts the dataset"
                       " sentences to my format to be used for "
                       "langauge modelling and use GPT insted of BERT models.")
 
-args.add_argument("--data_folder", type=bool, default="/Users/yashbonde/Desktop/AI/text2sql/data",
+args.add_argument("--data_folder", type=str, default="/Users/yashbonde/Desktop/AI/text2sql/data",
                   help="Folder with the extracted datasets")
+args.add_argument("--vocab_size", type=int, default=4000, help="vocabulary size for sentence piece model")
 args = args.parse_args()
 
 # paths to main files
@@ -184,6 +187,21 @@ with open(os.path.join(args.data_folder,"all_schema.json"), "w") as f:
     f.write(json.dumps(all_schema))
 
 print(f"Found {len(all_schema)} schemas")
+
+all_strings = []
+for _id in all_schema:
+    all_strings.append(get_db_graph_string(parse_db_to_networkx(all_schema[_id])))
+
+with open(os.path.join(args.data_folder, "all_sentences.txt"), "w") as f:
+    f.write("\n".join(df["query"].unique().tolist() +
+                      df["question"].unique().tolist() +
+                      all_strings))
+
+sentencepiece.SentencePieceTrainer.train(f'''--input={os.path.join(args.data_folder, "all_sentences.txt")}\
+    --model_prefix=m --vocab_size=5000 --pad_id=1 --pad_piece=[PAD]\
+    --bos_id=2 --bos_piece=[BOS] --eos_id=3 --eos_piece=[EOS]\
+    --unk_id=4 --unk_piece=[UNK] --model_type=word''')
+
 
 # """
 # Below this was the old language modelling method which was a bad idea due to compute

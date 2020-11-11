@@ -209,11 +209,13 @@ class Block(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, config):
         super(Decoder, self).__init__()
-        for i in range(config.n_decoder_layers):
-            self.blocks.append(Block(config, n_ctx = config.maxlen_sql,  add_cross_attention = False)) # casual
-            self.blocks.append(Block(config, n_ctx = config.maxlen_sql, add_cross_attention = True)) # sent
-            self.blocks.append(Block(config, n_ctx = config.maxlen_sql, add_cross_attention = True)) # db
 
+        blocks = []
+        for i in range(config.n_decoder_layers):
+            blocks.append(Block(config, n_ctx = config.maxlen_sql,  add_cross_attention = False)) # casual
+            blocks.append(Block(config, n_ctx = config.maxlen_sql, add_cross_attention = True)) # sent
+            blocks.append(Block(config, n_ctx = config.maxlen_sql, add_cross_attention = True)) # db
+        self.blocks = nn.ModuleList(blocks)
         self.ln = nn.LayerNorm(config.n_embd, eps = config.layer_norm_epsilon)
 
     def forward(self,
@@ -276,7 +278,17 @@ class Text2SQLModel(nn.Module):
 
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias = False)
 
-        self.init_weights()
+        self.apply(self._init_weights)
+        print("number of parameters:", sum(p.numel() for p in self.parameters()))
+
+    def _init_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
 
 
     def get_position_ids(self, input, past_length, device):
@@ -318,7 +330,7 @@ class Text2SQLModel(nn.Module):
         return output
 
 class ModelConfig():
-    vocab_size = 50257
+    vocab_size = 5012
     n_embd = 256
 
     maxlen_sent = 128
@@ -329,7 +341,7 @@ class ModelConfig():
     n_sent_layers = 3
     n_db_layers = 3
 
-    n_head = 12
+    n_head = 8
     n_inner = None
     activation_function = "gelu_new"
     resid_pdrop = 0.1

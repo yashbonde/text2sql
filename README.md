@@ -16,28 +16,40 @@ Run
 pip install text2sql
 ```
 
-To install make changes to this repo clone it then run `setup.py`
-```
-git clone https://github.com/yashbonde/text2sql.git
-cd text2sql/
-pip3 install -e . #text2sql
-```
-
-## Parsing
-
-New method of parsing to convert each DB to a graph network, red denotes foreign keys.
-<img src="assets/dbvis.png">
-
-## Trainer File
-
-Simple trainer file.
-
 ## Datasets
 
 Using [CoSQL](https://yale-lily.github.io/cosql), [Spider](https://yale-lily.github.io/spider), [Sparc](https://yale-lily.github.io/sparc) datasets, credit to the authors. There are a couple of things to note, we have in total 178 tables, but only 166 tables in training date and dev set has 20 tables.
 
 We convert the dateset into graphs using `text2sql.data.parse_db_to_networkx()` function. 
 
+## Parsing
+
+New method of parsing to convert each DB to a graph network, red denotes foreign keys.
+<img src="assets/dbvis.png">
+
+According to the initial idea I was going to pass a GNN on top of this, but it's too complicated, so instead I replicate the message passing using attention matrix in a standard transformer. Due to size constraints however I have not parsed the following tables: `'baseball_1', 'soccer_1', 'cre_Drama_Workshop_Groups'`.
+
+## Model
+
+Simple model with two transformer encoder (one for DB parsing and another for question) and a transformer decoder for sql generation. Similar to vanilla seq-2-seq transformer with one extra encoder and extra decoder attention matrix in decoder.
+
+#### Tricks
+
+There are couple of tricks I have used that can be improved:
+* filtering message passing using attention masks
+* fixed the sequence size in all blocks to 400
+
+## Training
+
+To train the model first need to parse and create the datasets, download the data from above mentioned links, extract and place them all in the same folder (or use pre-parsed in `/fdata`). Then run the command
+```
+python parse_to_lm.py
+```
+
+To train the model run this command
+```
+python train.py
+```
 
 ## License
 
