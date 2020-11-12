@@ -24,3 +24,4 @@ _temp.png
 
 # mostly the dump files
 *.txt
+*.log
