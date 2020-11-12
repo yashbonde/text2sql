@@ -72,16 +72,18 @@ class Attention(nn.Module):
         if self.scale:
             w = w / (float(v.size(-1)) ** 0.5)
 
-        # print("((((", w.size(), attention_mask.size())
+#         print("((((", w.size(), attention_mask.size())
 
         if attention_mask is not None:
+            # reshape the attention mask to fit the weight matrix
+#             print(attention_mask[0, 0, :w.size(2), :])
             # Apply the attention mask
-            w = w + attention_mask
+            w = w + attention_mask[:, :, :w.size(2), :]
 
         w = nn.Softmax(dim=-1)(w)
         w = self.attn_dropout(w)
 
-        # print(w.size(), v.size())
+#         print(w.size(), v.size())
 
         outputs = [torch.matmul(w, v)]
         if output_attentions:
@@ -180,7 +182,7 @@ class Block(nn.Module):
         # this was not taking key word arguments in Sequential so need to pass around a tuple
         # so now I understood why huggingface coded by passing around lists, stupid!
         type_ =x[0]
-        # print("^^^^", type_, len(x))
+#         print("^^^^", type_, len(x))
         if type_ in ["encoder", "self"]:
             (hidden_states, attention_mask) = x[1:]
         else:
@@ -263,9 +265,14 @@ class Text2SQLModel(nn.Module):
         self.config = config
 
         self.embedding = nn.Embedding(config.vocab_size, config.n_embd)
-        self.wte_sent = nn.Embedding(config.maxlen, config.n_embd)
-        self.wte_db = nn.Embedding(config.maxlen, config.n_embd)
-        self.wte_sql = nn.Embedding(config.maxlen, config.n_embd)
+#         self.wte_sent = nn.Embedding(config.maxlen, config.n_embd)
+#         self.wte_db = nn.Embedding(config.maxlen, config.n_embd)
+#         self.wte_sql = nn.Embedding(config.maxlen, config.n_embd)
+
+        # using embedding and position IDs isn't really going well so will use Parameter
+        self.wte_sent = nn.Parameter(torch.zeros(config.maxlen, config.n_embd))
+        self.wte_db = nn.Parameter(torch.zeros(config.maxlen, config.n_embd))
+        self.wte_sql = nn.Parameter(torch.zeros(config.maxlen, config.n_embd))
 
         self.sentence_encoder = nn.Sequential(*[
             Block(config, n_ctx=config.maxlen, add_cross_attention=False)
@@ -336,18 +343,20 @@ class Text2SQLModel(nn.Module):
         #     {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
         #     {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         # ]
-        optimizer = torch.optim.AdamW(self.parameters(), lr=train_config.lr, betas=train_config.betas)
+        optimizer = torch.optim.Adam(self.parameters(), lr=train_config.lr, betas=train_config.betas)
         return optimizer
 
     def get_position_ids(self, input, past_length, device):
         input_shape = input.size()
-        position_ids = torch.arange(past_length, input_shape[-1] + past_length, dtype=torch.long, device=device)
+        position_ids = torch.arange(past_length, input_shape[-1] + past_length).long().to(device)
         position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
+        print("**", position_ids.device)
         return position_ids
 
     def encoder_fn(self, sent, db, sent_attn, db_attn, device):
-        sent = self.embedding(sent) + self.wte_sent(self.get_position_ids(sent, past_length = 0, device = device))
-        db = self.embedding(db) + self.wte_db(self.get_position_ids(db, past_length = 0, device = device))
+        B, T = sent.size()
+        sent = self.embedding(sent) + self.wte_sent[:T,:]
+        db = self.embedding(db) + self.wte_db[:T,:]
         sent_hidden_states = self.sentence_encoder(("encoder", sent, sent_attn),)[1]
         db_hidden_states = self.db_encoder(("encoder", db, db_attn),)[1]
         return SimpleNamespace(
@@ -357,18 +366,21 @@ class Text2SQLModel(nn.Module):
             db_attn=db_attn
         )
 
-    def decoder_fn(self, enc_out, sql, sql_attn, device):
-        sql = self.embedding(sql) + self.wte_sql(self.get_position_ids(sql, past_length = 0, device = device))
+    def decoder_fn(self, enc_out, sql_ids, sql_attn, device):
+        B, T = sql_ids.size()
+        sql = self.embedding(sql_ids) + self.wte_sql[:T,:]
         sql_output = self.decoder((sql, sql_attn, enc_out.sent_hidden_states,
                                    enc_out.sent_attn, enc_out.db_hidden_states, enc_out.db_attn),)[0]
         sql_output = self.lm_head(sql_output)
         return sql_output
 
     def forward(self, sql_ids, sent, db, sql_attn, sent_attn, db_attn, labels=None, past_length=0, device="cpu"):
+        B, T = sql_ids.size()
+        
         # make the embeddings
-        sql = self.embedding(sql_ids) + self.wte_sql(self.get_position_ids(sql_ids, past_length = past_length, device = device))
-        sent = self.embedding(sent) + self.wte_sent(self.get_position_ids(sent, past_length = 0, device = device))
-        db = self.embedding(db) + self.wte_db(self.get_position_ids(db, past_length = 0, device = device))
+        sql = self.embedding(sql_ids) + self.wte_sql[:T,:]
+        sent = self.embedding(sent) + self.wte_sent[:T,:]
+        db = self.embedding(db) + self.wte_db[:T,:]
 
         # get hidden_states for sentence_encoder
         sent_hidden_states = self.sentence_encoder(("encoder", sent, sent_attn),)[1]
@@ -469,13 +481,19 @@ def sample(model, sent, sent_attn, db, db_attn, t, sql_str = None, device="cpu",
     out = []
 
     for k in range(steps):
-        x = sql if sql.size(1) < model.config.maxlen else sql[:, -model.config.maxlen:]
+        if k == 0:
+            x = sql if sql.size(1) < model.config.maxlen else sql[:, -model.config.maxlen:]
+        else:
+            x = x if x.size(1) < model.config.maxlen else x[:, -model.config.maxlen:]
 
-        sql_attn = np.ones((len(sql[0]), len(sql[0])))
-        sql_attn = sql_attn - np.triu(sql_attn, k = 1)
+        sql_attn = np.zeros((x.size(1), x.size(1)))
+        sql_attn[:x.size(1), :x.size(1)] = 1
+        sql_attn = sql_attn - np.triu(sql_attn, k = 1) # casual masking
         sql_attn = 1 - sql_attn
         sql_attn = sql_attn * -1e6
         sql_attn = torch.from_numpy(sql_attn.astype(np.float32)).to(device).view(1, 1, *sql_attn.shape)
+        
+#         print("****", x.size(), sql_attn.size())
 
         logits = model.decoder_fn(enc_out, x, sql_attn, device=device)
 
@@ -495,6 +513,6 @@ def sample(model, sent, sent_attn, db, db_attn, t, sql_str = None, device="cpu",
         # append to the sequence and continue
         x = torch.cat((x, ix), dim=1)
 
-        out.append(t.decode_ids(ix[0].tolist()))
+        out.append(ix[0].tolist()[0])
 
-    return " ".join(out)
+    return t.decode_ids(out)

@@ -36,9 +36,10 @@ class Trainer:
         print(f"Saving Model at {self.config.ckpt_path}")
         torch.save(raw_model.state_dict(), self.config.ckpt_path)
 
-    def train(self, verbose = False):
+    def train(self, data_config, verbose = False):
         model, config = self.model, self.config
-        optimizer = model.configure_optimizers(config)
+        raw_model = model.module if hasattr(self.model, "module") else model
+        optimizer = raw_model.configure_optimizers(config)
         lrscheduler = OneCycleLR(
             optimizer,
             max_lr = config.lr,
@@ -75,11 +76,15 @@ class Trainer:
                             pbar.set_description(f"[TRAIN] GS: {_gs}, Epoch: {epoch}, Loss: {round(_l, 5)}")
                         else:
                             pbar.set_description(f"[VAL] Epoch: {epoch}")
+                            
+                        d = {k:v.to(self.device) for k,v in d.items()}
+#                         print({k:(v.size(), v.dtype, v.device) for k,v in d.items()})
 
                         loss, logits = model(
-                            **{k:v.to(self.device) for k,v in d.items()},
+                            **d,
                             device = self.device
                         )
+                        loss = loss.mean() # gather from multitple GPUs
                         losses.append(loss.item())
 
                         if is_train:
@@ -92,20 +97,22 @@ class Trainer:
                             optimizer.step()
                             lrscheduler.step()
                             _gs += 1
-                        else:
-                            # create samples for visualising the results
-                            print("Generating Samples ...")
-                            for i in range(min(5, len(d["sql_ids"]))):
-                                s = {k:v[i, ...] for k,v in d.items()}
-                                seq = sample(model, sent=s["sent"], sent_attn=s["sent_attn"],
-                                    db=s["db"], db_attn=s["db_attn"], t=config.tokenizer,
-                                    device = self.device)
-                                print("-->", seq)
 
                 if not is_train:
                     # no sampling here, because that really doesn't make any sense
                     test_loss = float(np.mean(losses))
                     tb.add_scalar("test_loss", test_loss, global_step=_gs, walltime=time.time())
+                    
+                    # create samples for visualising the results
+                    print("Generating Samples ...")
+                    for i in range(min(10, len(d["sql_ids"]))):
+                        s = {k:v[i, ...] for k,v in d.items()}
+                        seq = sample(raw_model, sent=s["sent"], sent_attn=s["sent_attn"],
+                            db=s["db"], db_attn=s["db_attn"], t=data_config.tokenizer,
+                            device = self.device) #, sql_str = "select")
+                        target = data_config.tokenizer.decode_ids([x for x in s["labels"].tolist() if x != -100])
+                        print("-->", seq ,"<<--->>", target)
+                    
                     return test_loss
                 return _gs
 

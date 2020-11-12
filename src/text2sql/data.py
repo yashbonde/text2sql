@@ -191,8 +191,7 @@ class T2SDataset(Dataset):
 
         # prepare the DB sequence
         g = self.schemas[self.db_ids[index]]
-        db_attn_mat, db_tokens, len_db = get_tokenised_attention_mask(
-            g, t, size=config.maxlen)
+        db_attn_mat, db_tokens, len_db = get_tokenised_attention_mask(g, t, size=config.maxlen)
         db_tokens = [t.bos_id()] + db_tokens + [t.eos_id()]
         if config.maxlen > len(db_tokens):
             db_tokens = db_tokens + [t.pad_id() for _ in range(config.maxlen - len(db_tokens))]
@@ -201,7 +200,7 @@ class T2SDataset(Dataset):
 
         # prepare the sql query
         sql = self.queries[index]
-        sql = [t.bos_id()] + t.encode(sql) + [t.bos_id()]
+        sql = [t.bos_id()] + t.encode(sql) + [t.eos_id()]
         sql_len = len(sql)
         if config.maxlen > len(sql) + 1:
             sql = sql + [t.pad_id() for _ in range(config.maxlen - len(sql) + 1)]
@@ -219,7 +218,7 @@ class T2SDataset(Dataset):
 
         # create input ids
         sql_ids = torch.from_numpy(np.asarray(sql[:-1])).long()
-        sql_ids[sql_len:] = -100
+#         sql_ids[sql_len:] = -100
 
         # return the output dictionary
         return {
@@ -248,6 +247,8 @@ class T2SDatasetConfig:
             self.attrs.append(k)
         self.tokenizer = spm.SentencePieceProcessor()
         self.tokenizer.load(self.tokenizer_path)
+        
+        print(f"Loaded tokenizer from: {self.tokenizer_path}. (vocab_size: {self.tokenizer.vocab_size()})")
 
     def __repr__(self):
         kvs = [(k, f"{getattr(self, k)}") for k in sorted(list(set(self.attrs)))]

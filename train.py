@@ -9,28 +9,24 @@ from text2sql.data import T2SDataset, T2SDatasetConfig
 from text2sql.model import Text2SQLModel, Text2SQLModelConfig
 from text2sql.trainer import *
 
-
 # --- arguments
 args = ArgumentParser(description="Text2SQL Model Trainer")
 
 # --- paths
 args.add_argument("--save_folder", default = "models", type = str, help = "folder to save all models")
 args.add_argument("--name", type = str, help = "name of this particular model")
-args.add_argument("--schema_file", type = str, help = "path to schema file",
-                  default="/Users/yashbonde/Desktop/AI/text2sql/fdata/all_schema.json")
-args.add_argument("--questions_tsv", type = str, help = "path to text/sql tsv",
-                  default="/Users/yashbonde/Desktop/AI/text2sql/fdata/all_questions.tsv")
-args.add_argument("--tokenizer_path", type = str, help = "path to sentencepiece model file",
-                  default="/Users/yashbonde/Desktop/AI/text2sql/data/model.model")
+args.add_argument("--schema_file", type = str, help = "path to schema file", default="/workspace/text2sql/fdata/all_schema.json")
+args.add_argument("--questions_tsv", type = str, help = "path to text/sql tsv", default="/workspace/text2sql/fdata/all_questions.tsv")
+args.add_argument("--tokenizer_path", type = str, help = "path to sentencepiece model file", default="/workspace/text2sql/fdata/model.model")
 args.add_argument("--seed", default = None, type = int, help = "seed value for training")
 
 # --- arch
-args.add_argument("--n_embd", default = 144, type = int, help = "Embedding Dim")
-args.add_argument("--n_decoder_layers", default = 2, type = int, help = "Num Decoder layers")
-args.add_argument("--n_sent_layers", default = 2, type = int, help = "Num layers for sentence encoder")
-args.add_argument("--n_db_layers", default = 2, type = int, help = "Num layers for DB encoder")
+args.add_argument("--n_embd", default = 256, type = int, help = "Embedding Dim")
+args.add_argument("--n_decoder_layers", default = 4, type = int, help = "Num Decoder layers")
+args.add_argument("--n_sent_layers", default = 4, type = int, help = "Num layers for sentence encoder")
+args.add_argument("--n_db_layers", default = 4, type = int, help = "Num layers for DB encoder")
 args.add_argument("--n_head", default = 4, type = int, help = "Num Heads")
-args.add_argument("--maxlen", default = 200, type = int, help = "Maximum length of decoder")
+args.add_argument("--maxlen", default = 390, type = int, help = "Maximum length of decoder")
 
 # --- data
 args.add_argument("--mult", default = 3, type = int, help = "Size of dataset")
@@ -39,13 +35,13 @@ args.add_argument("--fmax", default = 0.8, type = float, help = "Max fields prob
 args.add_argument("--fmin", default = 0.1, type = float, help = "Min fields probability")
 
 # --- trainer
-args.add_argument("--n_epochs", default = 5, type = int, help = "Number of epochs to train")
-args.add_argument("--batch_size", default = 56, type = int, help = "Mini-Batch Size")
-args.add_argument("--lr", default = 1e-3, type = float, help = "Learning Rate")
+args.add_argument("--n_epochs", default = 3, type = int, help = "Number of epochs to train")
+args.add_argument("--batch_size", default = 32, type = int, help = "Mini-Batch Size")
+args.add_argument("--lr", default = 1e-4, type = float, help = "Learning Rate")
 args.add_argument("--sample_every", default = 5, type = int, help = "After t")
 args.add_argument("--train_ratio", default = 0.9, type = float, help = "Ratio of train data, rest is testing")
 args.add_argument("--beta1", default = 0.9, type = float, help = "Adam.beta1")
-args.add_argument("--beta2", default = 0.95, type = float, help = "Adam.beta2")
+args.add_argument("--beta2", default = 0.99, type = float, help = "Adam.beta2")
 args.add_argument("--grad_norm_clip", default = 1.0, type = float, help = "Adam.beta2")
 args.add_argument("--patience", default = 6, type = int, help = "training stops after patience runs out")
 
@@ -66,6 +62,7 @@ datasetConf = T2SDatasetConfig(
     maxlen=args.maxlen,
     tokenizer_path=args.tokenizer_path
 )
+print(datasetConf)
 dtrain = T2SDataset(config=datasetConf, mode="train")
 dtest = T2SDataset(config=datasetConf, mode="test")
 
@@ -79,6 +76,7 @@ modelConfig = Text2SQLModelConfig(
     n_db_layers=args.n_db_layers,
     n_head=args.n_head,
 )
+print(modelConfig)
 model = Text2SQLModel(modelConfig)
 
 # Trainer
@@ -94,9 +92,6 @@ trainConfig = TrainerConfig(
     tb_path=args.tb_path,
     ckpt_path=args.ckpt_path
 )
-
-print(modelConfig)
-print(datasetConf)
 print(trainConfig)
 trainer = Trainer(model, dtrain, dtest, trainConfig)
-trainer.train()
+trainer.train(datasetConf)
