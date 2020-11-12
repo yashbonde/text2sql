@@ -11,6 +11,8 @@ import numpy as np
 from tqdm import tqdm, trange
 from tabulate import tabulate
 
+from text2sql.model import sample
+
 import torch
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
@@ -101,6 +103,15 @@ class Trainer:
                             optimizer.step()
                             lrscheduler.step()
                             _gs += 1
+
+                        else:
+                            # create samples for visualising the results
+                            print("Generating Samples ...")
+                            for i in range(min(5, len(d["sql_ids"]))):
+                                s = {k:v[i, ...] for k,v in d.items()}
+                                seq = sample(model, sent=s["sent"], sent_attn=s["sent_attn"],
+                                    db=s["db"], db_attn=s["db_attn"], t=config.tokenizer)
+                                print("-->", seq)
 
                 if not is_train:
                     # no sampling here, because that really doesn't make any sense
