@@ -458,7 +458,7 @@ def sample(model, sent, sent_attn, db, db_attn, t, sql_str = None, device="cpu",
     db = db.view(-1, db.size(0))
     sent_attn = sent_attn.view(-1, *sent_attn.size())
     db_attn = db_attn.view(-1, *db_attn.size())
-    print(sent.size(), db.size(), sent_attn.size(), db_attn.size())
+    # print(sent.size(), db.size(), sent_attn.size(), db_attn.size())
     enc_out = model.encoder_fn(sent, db, sent_attn, db_attn, device=device)
 
     # convert string to sql_tokens
