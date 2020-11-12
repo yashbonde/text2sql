@@ -66,6 +66,7 @@ NO INFORMATION GIVEN ABOUT THIS ONE, BUT WE CAN STILL GET [table], [NL], [QUERY]
 
 import os
 import json
+import numpy as np
 import pandas as pd
 import networkx as nx  # each table is a graph
 from argparse import ArgumentParser
@@ -162,6 +163,25 @@ for d, db, tt in zip(data, dbs, test_train):
 
 # create dataframe
 df = pd.DataFrame(data=dataset_f, columns=cols)
+
+# train/test split by DB ID not by authors
+all_dbs = list(set(df.db_id.values))
+train_dbs = set(np.random.choice(all_dbs, size = int(0.9 * len(all_dbs)), replace = False).tolist())
+test_dbs = set([x for x in all_dbs if x not in train_dbs])
+assert len(train_dbs | test_dbs) == len(all_dbs)
+assert len(train_dbs & test_dbs) == 0
+
+train_idx = [i for i,db_id in enumerate(df.db_id.values) if db_id in train_dbs]
+train = []
+for i in range(len(df)):
+    if i in train_idx:
+        train.append(1)
+    else:
+        train.append(0)
+        
+assert len(train) == len(df)
+df.train = train
+
 df.to_csv(os.path.join(args.data_folder, "all_questions.tsv"), sep="\t", index = False)
 print(f"Save dataset at: {os.path.join(args.data_folder, 'all_questions.tsv')}")
 
