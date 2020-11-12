@@ -313,10 +313,12 @@ class T2SDataset(Dataset):
 class T2SDatasetConfig:
     schema_file = None # json file with schema dump
     questions_file = None # TSV file with questions-sql dump
-    maxlen = 400 # maximum length for all is same for simplicity
+    maxlen = 150 # maximum length for all is same for simplicity
     # also same size helps fit in the encoder mask as well as the
     # cross attention mask
     tokenizer_path = None
+
+    maxlen_db = 1900 # maximum length of DB string to support
 
     def __init__(self, **kwargs):
         self.attrs = ["schema_file", "questions_file", "maxlen"]
