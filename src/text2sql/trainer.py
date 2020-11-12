@@ -59,7 +59,6 @@ class Trainer:
                     pin_memory = True,
                     batch_size = config.batch_size,
                 )
-
                 losses = []
                 if is_train:
                     pbar = trange(config.num_batch, ncols=100)
@@ -74,12 +73,8 @@ class Trainer:
                         _l = -1 if not losses else losses[-1]
                         if is_train:
                             pbar.set_description(f"[TRAIN] GS: {_gs}, Epoch: {epoch}, Loss: {round(_l, 5)}")
-                            # print(f"[TRAIN] GS: {_gs}, Time: {t_step}/{total_steps},"
-                            #       f" Epoch: {epoch}, Loss: {round(_l, 5)}")
                         else:
                             pbar.set_description(f"[VAL] Epoch: {epoch}")
-
-                        # print({k:(v.size(), v.dtype) for k,v in d.items()})
 
                         loss, logits = model(
                             **{k:v.to(self.device) for k,v in d.items()},
@@ -91,26 +86,20 @@ class Trainer:
                             # add things to tb, loss and attention images
                             tb.add_scalar("loss", loss.item(), global_step=_gs, walltime=time.time())
                             tb.add_scalar("lr", lrscheduler.get_lr()[0], global_step=_gs, walltime=time.time())
-                            # for l, att in enumerate(out.attentions):
-                            #     tb.add_image(
-                            #         f"attention/layer_{l}", att[0][0],
-                            #         global_step=gs, walltime=time.time(),
-                            #         dataformats= "HW"
-                            #     )
 
                             loss.backward()
                             torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
                             optimizer.step()
                             lrscheduler.step()
                             _gs += 1
-
                         else:
                             # create samples for visualising the results
                             print("Generating Samples ...")
                             for i in range(min(5, len(d["sql_ids"]))):
                                 s = {k:v[i, ...] for k,v in d.items()}
                                 seq = sample(model, sent=s["sent"], sent_attn=s["sent_attn"],
-                                    db=s["db"], db_attn=s["db_attn"], t=config.tokenizer)
+                                    db=s["db"], db_attn=s["db_attn"], t=config.tokenizer,
+                                    device = self.device)
                                 print("-->", seq)
 
                 if not is_train:

@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from tabulate import tabulate
-
 import sentencepiece as spm
 
 import torch
@@ -95,8 +94,6 @@ def get_tokenised_attention_mask(g, t, size = None, inf = 1e6):
         tokens = t.encode(" ".join([x[1].get("table"), x[1].get("name")]))
         sizes.append(len(tokens))
         ts.extend(tokens)
-    
-    # print(ts)
 
     # get adjacency matrix 
     mat = nx.adjacency_matrix(g).todense()
@@ -126,7 +123,6 @@ def get_tokenised_attention_mask(g, t, size = None, inf = 1e6):
         fmat[:tmat.shape[0], :tmat.shape[0]] = tmat
         fmat = 1 - fmat 
         fmat = fmat * -inf
-
     else:
         fmat = tmat
 
@@ -159,7 +155,6 @@ def format_sql(in_str):
 class T2SDataset(Dataset):
     def __init__(self, config, mode):
         self.config = config
-
         self._tokenizer = config.tokenizer
 
         with open(config.schema_file) as f:
@@ -217,8 +212,7 @@ class T2SDataset(Dataset):
         sql_attn = sql_attn - np.triu(sql_attn, k = 1) # casual masking
         sql_attn = 1 - sql_attn
         sql_attn = sql_attn * -1e6
-        
-        
+    
         # create labels
         labels = torch.from_numpy(np.asarray(sql[1:])).long()
         labels[sql_len-1:] = -100 # minus 1 because already shifted
@@ -229,7 +223,7 @@ class T2SDataset(Dataset):
 
         # return the output dictionary
         return {
-            "sql_ids": torch.from_numpy(np.asarray(sql[:-1])).long(),
+            "sql_ids": sql_ids,
             "labels": labels,
             "sent": torch.from_numpy(np.asarray(question)).long(),
             "db": torch.from_numpy(np.asarray(db_tokens)).long(),
@@ -252,11 +246,8 @@ class T2SDatasetConfig:
         for k, v in kwargs.items():
             setattr(self, k, v)
             self.attrs.append(k)
-
         self.tokenizer = spm.SentencePieceProcessor()
         self.tokenizer.load(self.tokenizer_path)
-
-        print(f"Loaded Tokenizer: {self.tokenizer}")
 
     def __repr__(self):
         kvs = [(k, f"{getattr(self, k)}") for k in sorted(list(set(self.attrs)))]

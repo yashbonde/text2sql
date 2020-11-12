@@ -12,8 +12,6 @@ from transformers.modeling_utils import find_pruneable_heads_and_indices, prune_
 from transformers.activations import ACT2FN
 
 # the code below is only a slighlty modified version from huggingface.
-
-
 class Conv1D(nn.Module):
     def __init__(self, nf, nx):
         super().__init__()
@@ -28,7 +26,6 @@ class Conv1D(nn.Module):
         x = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
         x = x.view(*size_out)
         return x
-
 
 
 class Attention(nn.Module):
@@ -181,6 +178,7 @@ class Block(nn.Module):
 
     def forward(self, x):
         # this was not taking key word arguments in Sequential so need to pass around a tuple
+        # so now I understood why huggingface coded by passing around lists, stupid!
         type_ =x[0]
         # print("^^^^", type_, len(x))
         if type_ in ["encoder", "self"]:
@@ -194,8 +192,7 @@ class Block(nn.Module):
         )
         attn_output = attn_outputs[0]  # output_attn: a, present, (attentions)
         outputs = attn_outputs[1:]
-        # residual connection
-        hidden_states = attn_output + hidden_states
+        hidden_states = attn_output + hidden_states # residual connection
 
         if type_ == "decoder":
             # add one self-attention block for cross-attention

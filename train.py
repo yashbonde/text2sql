@@ -1,16 +1,9 @@
 """going by o2f format and using huggingface library
-15.09.2020 - @yashbonde"""
+12.11.2020 - @yashbonde"""
 
 import os
 from types import SimpleNamespace
 from argparse import ArgumentParser
-
-import sentencepiece as sp
-
-# from trainer import *
-# from data import StdzDataset3, StdzDataset2, StdzDataset, DatasetConfig, load_tokenizer
-# from transformers import GPT2Config, GPT2LMHeadModel
-# from model import GPT2Config, GPT2LMHeadModel
 
 from text2sql.data import T2SDataset, T2SDatasetConfig
 from text2sql.model import Text2SQLModel, Text2SQLModelConfig
@@ -18,7 +11,7 @@ from text2sql.trainer import *
 
 
 # --- arguments
-args = ArgumentParser(description="GPT based standardisation methods")
+args = ArgumentParser(description="Text2SQL Model Trainer")
 
 # --- paths
 args.add_argument("--save_folder", default = "models", type = str, help = "folder to save all models")
@@ -54,7 +47,6 @@ args.add_argument("--train_ratio", default = 0.9, type = float, help = "Ratio of
 args.add_argument("--beta1", default = 0.9, type = float, help = "Adam.beta1")
 args.add_argument("--beta2", default = 0.95, type = float, help = "Adam.beta2")
 args.add_argument("--grad_norm_clip", default = 1.0, type = float, help = "Adam.beta2")
-
 args.add_argument("--patience", default = 6, type = int, help = "training stops after patience runs out")
 
 # --- parse and add more
